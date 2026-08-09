@@ -29,8 +29,9 @@ it uses `zr` as its shebang interpreter.
 
 **Tag**
 : A string label describing an active invocation context, such as `prod` or
-  `shard1`. Tags may come from the invocation filename or from `+TAG`
-  command-line arguments.
+  `shard1`. Tags may come from the invocation filename or from command-line
+  arguments before `--` that are not property assignments. Tag strings are not
+  required to be valid shell parameter names.
 
 **Property**
 : A named string value supplied as `NAME=value` before `--`.
@@ -81,19 +82,28 @@ After normalization, execution semantics are identical.
 
 ## Command Grammar
 
-Before `--`, every argument after the config is consumed by `zr` and must have
-one of these forms:
+Before `--`, every argument after the config is consumed by `zr` and is parsed
+as one of these forms:
 
 ```text
-+TAG
+TAG
 NAME=value
 ```
 
-`+TAG` supplies a tag.
+`TAG` supplies a tag. A tag argument is any token before `--` that is not a
+property assignment. The tag value is the token itself, unchanged. Tags are not
+required to be valid zsh parameter names and may be arbitrary strings, subject
+only to the parsing rule below. A leading `+` has no special meaning; `+prod` is
+the literal tag string `+prod`.
 
-`NAME=value` supplies a property. `NAME` must be a valid zsh parameter name
+`NAME=value` supplies a property when `NAME` is a valid zsh parameter name
 matching `[A-Za-z_][A-Za-z0-9_]*`. The value is everything after the first `=`;
-it may be empty and may contain additional `=` characters.
+it may be empty and may contain additional `=` characters. A token containing
+`=` whose prefix is not a valid property name is a tag, not a malformed
+property.
+
+Tags and properties may be intermingled before `--`; each token is parsed
+independently.
 
 The optional `--` token terminates `zr` arguments. Every subsequent token is
 passed to `main()` unchanged.
@@ -101,8 +111,8 @@ passed to `main()` unchanged.
 Examples:
 
 ```sh
-zr ./my-service +prod +shard1 endpoint=/foo/bar
-zr ./my-service +prod endpoint=/foo/bar -- arg1 arg2
+zr ./my-service prod shard1 endpoint=/foo/bar
+zr ./my-service prod endpoint=/foo/bar -- arg1 arg2
 my-service.prod.shard1 endpoint=/foo/bar -- arg1 arg2
 ```
 
@@ -118,7 +128,7 @@ Tags are string labels describing the invocation context.
 Tags come from two sources:
 
 1. components of the lexical config filename; and
-2. `+TAG` command-line arguments.
+2. non-property command-line arguments before `--`.
 
 The two sources are additive.
 
@@ -167,15 +177,17 @@ is the physical target `~/configs/service`.
 
 ### CLI Tags
 
-A command-line token beginning with `+` adds the remainder of the token as a
-tag:
+A command-line token before `--` that is not a `NAME=value` property assignment
+adds that exact token as a tag:
 
 ```sh
-zr ./service +prod +shard1
+zr ./service prod shard1
 ```
 
-The leading `+` is command-line syntax only. The semantic tag names are `prod`
-and `shard1`; config APIs never include the leading `+`.
+There is no required tag prefix. For example, `prod`, `+prod`, `feature/foo`,
+`x=y`, and `123` are all valid tag strings except that a token such as
+`region=us-west`, whose prefix is a valid parameter name, is parsed as a
+property instead.
 
 A tag supplied by more than one source is represented once in the effective tag
 set. Tag matching is exact and case-sensitive.
@@ -196,6 +208,8 @@ ZR_TAGS=(service prod shard1)
 
 Configs should treat `ZR_TAGS` as the canonical representation of invocation
 tags.
+
+`Tag` is the specification term for these invocation-context labels.
 
 ## Properties
 
@@ -302,6 +316,9 @@ zr::tag debug
 zr::tag canary
 ```
 
+Tag names are arbitrary strings. They are matched exactly against `ZR_TAGS` and
+are not interpreted as shell parameter names.
+
 ### Declaring Tag Groups
 
 A mutually exclusive set of tags is declared with:
@@ -320,10 +337,10 @@ zr::tag-group shard shard1 shard2 shard3
 Every member of a tag group is also a declared valid tag.
 
 At most one tag from a group may be active in a valid invocation. For example,
-`+prod +dev` is invalid when both belong to the `env` group.
+`prod dev` is invalid when both belong to the `env` group.
 
 A group also gives semantic meaning to the active member as `GROUP=TAG`; this is
-used by `zr::tags-to-env`.
+used by `zr::tag-groups-to-env`.
 
 Group names must be valid zsh parameter names. Group names must be unique and
 must not collide with declared property names.
@@ -417,8 +434,10 @@ This mechanism is intentionally ordinary zsh rather than a separate condition
 language.
 
 The declarations produced by the current call to `configure()` are
-authoritative for that invocation state. A tag or property that is not declared
-by the resulting interface is invalid when `configure()` is present.
+authoritative for that invocation state. Declaration state starts fresh for each
+`configure()` call: declarations are additive within a single call, but are not
+accumulated across calls. A tag or property that is not declared by the
+resulting interface is invalid when `configure()` is present.
 
 This same rule makes completion naturally context-sensitive: only interface
 elements declared for the command line as currently typed are candidates.
@@ -485,29 +504,20 @@ explicitly exports them.
 Materialization intentionally happens only when requested; `zr` never creates
 bare property parameters automatically.
 
-## Materializing Tags as Shell Parameters
+## Materializing Tag Groups as Shell Parameters
 
-A config may explicitly materialize active tags with:
+A config may explicitly materialize active tag groups with:
 
 ```zsh
-zr::tags-to-env [TAG...]
+zr::tag-groups-to-env [GROUP...]
 ```
 
-With no arguments, all active tags are materialized. With names, only the
-selected active tags are materialized.
+With no arguments, every tag group that has an active member is materialized.
+With names, only the selected groups are materialized when they have an active
+member.
 
-Each materialized tag produces a namespaced boolean-style parameter. Tag names
-are normalized to a valid uppercase shell identifier for this purpose. For
-example:
-
-```text
-prod       -> ZR_TAG_PROD=1
-shard1     -> ZR_TAG_SHARD1=1
-my-service -> ZR_TAG_MY_SERVICE=1
-```
-
-When a materialized tag belongs to a tag group, the active group value is also
-materialized using the group name itself:
+Each materialized group produces one ordinary shell parameter named after the
+group, whose value is the active tag in that group:
 
 ```zsh
 zr::tag-group env prod dev staging
@@ -517,11 +527,14 @@ zr::tag-group shard shard1 shard2
 with active tags `prod` and `shard1` produces:
 
 ```zsh
-ZR_TAG_PROD=1
-ZR_TAG_SHARD1=1
 env=prod
 shard=shard1
 ```
+
+Because tag strings are arbitrary, `zr::tag-groups-to-env` does not create one
+shell parameter per active tag. `ZR_TAGS` remains the complete canonical list of
+all active tags, including ungrouped tags and tags whose values cannot be
+represented as parameter names.
 
 As with `zr::props-to-env`, these are ordinary shell parameters and are not
 exported automatically.
@@ -554,8 +567,11 @@ A normal zsh completion function, conventionally `_zr`, is registered for
 ```
 
 Before the config argument has been identified, `_zr` completes config paths.
-After a config has been identified, it parses the command line typed so far,
-derives filename tags, and evaluates the config interface.
+After a config has been identified, it parses the committed command-line words
+typed so far, derives filename tags, and evaluates the config interface. The
+active partial word being completed is not committed into `ZR_TAGS` or
+`ZR_PROPS` before `configure()` runs; it is used by `_zr` as the completion
+prefix or property-value context.
 
 ### Completion for Direct Config Commands
 
@@ -619,7 +635,7 @@ so config authors should keep it suitable for repeated evaluation.
 ### Completion Rules
 
 Completion uses the currently declared interface and the already-typed
-invocation state.
+committed invocation state.
 
 At minimum:
 
@@ -629,14 +645,18 @@ At minimum:
 - an already-supplied property is not suggested again;
 - only tags and properties declared by the current `configure()` evaluation are
   suggested;
+- when completing a property name prefix such as `reg`, declared properties are
+  suggested as `NAME=` candidates, such as `region=`;
 - when completing `NAME=...`, values declared through `zr::values` are
-  suggested;
-- context-sensitive declarations are reevaluated against the command line as
-  currently typed.
+  suggested as `NAME=value` candidates;
+- context-sensitive declarations are reevaluated against the committed command
+  line as currently typed.
 
 The config does not emit raw zsh completion primitives such as `_describe` or
 `_values`. It declares its interface through the `zr::` API; `_zr` owns the zsh
-completion mechanics.
+completion mechanics, including whether the active word is completing a tag, a
+property name, or a property value. Completion must quote or escape arbitrary
+tag strings correctly.
 
 ## Example Config
 
@@ -674,13 +694,13 @@ main() {
 It may be invoked explicitly:
 
 ```sh
-zr ./my-service +prod +shard1 endpoint=/foo region=us-west -- arg1 arg2
+zr ./my-service prod shard1 endpoint=/foo region=us-west -- arg1 arg2
 ```
 
 or directly when executable:
 
 ```sh
-./my-service +prod +shard1 endpoint=/foo region=us-west -- arg1 arg2
+./my-service prod shard1 endpoint=/foo region=us-west -- arg1 arg2
 ```
 
 or through a filename-tagged symlink:
@@ -713,7 +733,8 @@ rather than at top level or in `configure()`.
 
 Command-line tags, property names, property values, and main arguments are data.
 An implementation must not reconstruct them as unquoted shell program text or
-`eval` them as zsh code. Main arguments must be passed to `main()` as distinct
+`eval` them as zsh code. This is especially important for tags because they may
+be arbitrary strings. Main arguments must be passed to `main()` as distinct
 arguments, and any internal completion metadata representation must preserve
 names and values as data rather than executable shell syntax.
 
@@ -724,7 +745,6 @@ names and values as data rather than executable shell syntax.
 
 - a missing config operand in explicit `zr CONFIG ...` form;
 - a config path that cannot be resolved or sourced;
-- malformed arguments before `--`;
 - a property name that is not a valid zsh parameter name;
 - a repeated property assignment in one invocation;
 - a missing `main()` callback during normal execution;
@@ -748,24 +768,12 @@ The following details are not fully specified by this document. An
 implementation should not silently present one choice as part of the public
 contract unless the choice is intentionally standardized.
 
-### Tag Identifier Grammar
-
-Property names and tag-group names are valid zsh parameter names, but the full
-permitted character set for tag names is not otherwise specified. Existing
-examples establish that tags such as `my-service` are valid.
-
-### Tag Materialization Normalization
-
-`zr::tags-to-env` normalizes tag names to uppercase shell identifiers, with the
-examples establishing at least that `-` becomes `_`. Handling of other
-punctuation, non-ASCII text, leading digits, and collisions between distinct
-tags that normalize to the same parameter name is not specified.
-
 ### Selective Materialization of Missing Names
 
-`zr::props-to-env NAME...` and `zr::tags-to-env TAG...` select only the named
-supplied properties or active tags. The behavior when a requested property was
-not supplied or a requested tag is not active is not specified here.
+`zr::props-to-env NAME...` and `zr::tag-groups-to-env GROUP...` select only
+the named supplied properties or active tag groups. The behavior when a
+requested property was not supplied or a requested tag group has no active
+member is not specified here.
 
 ### Declaration Conflicts Beyond Named Groups
 
