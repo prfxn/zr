@@ -416,6 +416,10 @@ At most one tag from a group may be active in a valid invocation. For example,
 A group also gives semantic meaning to the active member as `GROUP=TAG`; this is
 used by `zr::tag-groups-to-env`.
 
+`zr::has-tag-for-group GROUP` returns success when the current invocation has
+an active tag that fits `GROUP`; it returns failure when no member of the group
+is active.
+
 Group names must be valid zsh parameter names. Group names must be unique and
 must not collide with declared property names.
 

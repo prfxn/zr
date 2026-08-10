@@ -112,6 +112,27 @@ main() {
 }
 CONFIG
 
+cat >$TMP/group-query.zsh <<'CONFIG'
+configure() {
+  zr::tag-group env prod dev
+  zr::tag-group shard shard1 shard2
+}
+
+main() {
+  if zr::has-tag-for-group env; then
+    print -r -- "has_env=yes"
+  else
+    print -r -- "has_env=no"
+  fi
+
+  if zr::has-tag-for-group shard; then
+    print -r -- "has_shard=yes"
+  else
+    print -r -- "has_shard=no"
+  fi
+}
+CONFIG
+
 cat >$TMP/conflict.zsh <<'CONFIG'
 configure() {
   zr::prop branch
@@ -202,6 +223,10 @@ assert-output-contains unknown-tag-allowed "tags=unknown zsh prod feature-x debu
 assert-output-contains unknown-tag-allowed "cli=prod feature-x feature-x debug"
 assert-output-contains unknown-tag-allowed "known=unknown zsh prod debug"
 assert-output-contains unknown-tag-allowed "unknown=feature-x feature-x"
+
+assert-success group-query $TMP/group-query.zsh prod
+assert-output-contains group-query "has_env=yes"
+assert-output-contains group-query "has_shard=no"
 
 assert-success configure-sees-unknown $TMP/configure-unknown.zsh prod feature-x seen_unknown=yes
 assert-output-contains configure-sees-unknown "unknown=feature-x"

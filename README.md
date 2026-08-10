@@ -153,6 +153,7 @@ Convenience helpers are also available:
 
 ```zsh
 zr::has-tag TAG
+zr::has-tag-for-group GROUP
 zr::has-prop NAME
 zr::get NAME
 ```

@@ -230,6 +230,11 @@ zr::active-tag-for-group() {
   print -r -- "$active"
 }
 
+zr::has-tag-for-group() {
+  local _active
+  _active=$(zr::active-tag-for-group "$1")
+}
+
 zr::tag-groups-to-env() {
   local -a groups
   local group active
