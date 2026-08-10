@@ -11,7 +11,48 @@ zr::valid-name() {
   [[ ${1-} =~ '^[A-Za-z_][A-Za-z0-9_]*$' ]]
 }
 
+zr::valid-function-name() {
+  [[ ${1-} =~ '^[A-Za-z_][A-Za-z0-9_:]*$' ]]
+}
+
+zr::valid-config-function-name() {
+  zr::valid-function-name "$1" && [[ $1 != zr::* ]]
+}
+
+zr::init-entrypoints() {
+  typeset -g ZR_CONFIG_MAIN=main
+  typeset -g ZR_CONFIG_CONFIGURE=configure
+  typeset -gi ZR_CONFIG_CONFIGURE_SET=0
+}
+
+zr::main() {
+  (( $# == 0 )) || { print -ru2 -- "zr: zr::main takes no arguments"; return 1; }
+  print -r -- "$ZR_CONFIG_MAIN"
+}
+
+zr::configure() {
+  (( $# == 0 )) || { print -ru2 -- "zr: zr::configure takes no arguments"; return 1; }
+  print -r -- "$ZR_CONFIG_CONFIGURE"
+}
+
+zr::set-main() {
+  local name=${1-}
+  (( $# == 1 )) || zr::die "zr::set-main requires one argument"
+  zr::valid-config-function-name "$name" || zr::die "invalid main function name: $name"
+  ZR_CONFIG_MAIN=$name
+}
+
+zr::set-configure() {
+  local name=${1-}
+  (( $# == 1 )) || zr::die "zr::set-configure requires one argument"
+  zr::valid-config-function-name "$name" || zr::die "invalid configure function name: $name"
+  ZR_CONFIG_CONFIGURE=$name
+  ZR_CONFIG_CONFIGURE_SET=1
+}
+
 zr::init-state() {
+  zr::init-entrypoints
+
   typeset -ga ZR_TAGS
   typeset -ga ZR_FILENAME_TAGS
   typeset -ga ZR_CLI_TAGS
@@ -385,10 +426,15 @@ zr::complete() {
   [[ -r $config_path ]] || return 1
 
   source "$config_path" || return 1
-  (( $+functions[configure] )) || return 0
+
+  local configure_fn=$ZR_CONFIG_CONFIGURE
+  if (( ! $+functions[$configure_fn] )); then
+    (( ZR_CONFIG_CONFIGURE_SET )) && return 1
+    return 0
+  fi
 
   zr::reset-schema
-  configure || return 1
+  "$configure_fn" || return 1
 
   local name value tag prop i
   if [[ $current == *=* ]]; then
@@ -468,7 +514,7 @@ ZR_COMPLETION
 
 }
 
-zr::main() {
+zr::_main() {
   case ${1-} in
     --completion)
       zr::print-completion
@@ -498,17 +544,22 @@ zr::main() {
 
   source "$config_path" || zr::die "failed to source config: $config_lexical"
 
-  if (( ! $+functions[main] )); then
-    zr::die "config does not define main()"
+  local main_fn=$ZR_CONFIG_MAIN
+  local configure_fn=$ZR_CONFIG_CONFIGURE
+
+  if (( ! $+functions[$main_fn] )); then
+    zr::die "config does not define $main_fn()"
   fi
 
-  if (( $+functions[configure] )); then
+  if (( $+functions[$configure_fn] )); then
     zr::reset-schema
-    configure || zr::die "configure() failed"
+    "$configure_fn" || zr::die "$configure_fn() failed"
     zr::validate-state
+  elif (( ZR_CONFIG_CONFIGURE_SET )); then
+    zr::die "config does not define $configure_fn()"
   fi
 
-  main "${ZR_MAIN_ARGS[@]}"
+  "$main_fn" "${ZR_MAIN_ARGS[@]}"
 }
 
-zr::main "$@"
+zr::_main "$@"

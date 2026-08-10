@@ -1,0 +1,21 @@
+#!/usr/bin/env zr
+
+# Choose config-owned function names explicitly, then define those names
+# directly. The default names would be configure() and main().
+zr::set-configure setup
+zr::set-main run
+
+setup() {
+  zr::tag-group mode preview apply
+  zr::tag verbose
+
+  zr::prop target
+  zr::values target local staging prod
+}
+
+run() {
+  print -r -- "custom-entrypoints-direct"
+  print -r -- "target=${ZR_PROPS[target]-local}"
+  print -r -- "tags=${ZR_TAGS[*]:-none}"
+  print -r -- "argv=${(qq)@}"
+}

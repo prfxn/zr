@@ -128,6 +128,65 @@ main() {
 }
 CONFIG
 
+cat >$TMP/dynamic-default-entrypoints.zsh <<'CONFIG'
+$(zr::configure)() {
+  zr::tag prod
+  zr::prop branch
+}
+
+$(zr::main)() {
+  print -r -- "dynamic-default branch=${ZR_PROPS[branch]-}"
+}
+CONFIG
+
+cat >$TMP/custom-entrypoints.zsh <<'CONFIG'
+zr::set-configure setup
+zr::set-main run
+
+$(zr::configure)() {
+  zr::tag prod
+  zr::prop branch
+}
+
+$(zr::main)() {
+  print -r -- "custom branch=${ZR_PROPS[branch]-} argv=$*"
+}
+CONFIG
+
+cat >$TMP/custom-entrypoints-direct.zsh <<'CONFIG'
+zr::set-configure setup
+zr::set-main run
+
+setup() {
+  zr::tag prod
+  zr::prop branch
+}
+
+run() {
+  print -r -- "direct custom branch=${ZR_PROPS[branch]-}"
+}
+CONFIG
+
+cat >$TMP/missing-custom-main.zsh <<'CONFIG'
+zr::set-main run
+main() { :; }
+CONFIG
+
+cat >$TMP/missing-custom-configure.zsh <<'CONFIG'
+zr::set-configure setup
+main() { :; }
+CONFIG
+
+cat >$TMP/reject-zr-main.zsh <<'CONFIG'
+zr::set-main zr::run
+zr::run() { :; }
+CONFIG
+
+cat >$TMP/reject-zr-configure.zsh <<'CONFIG'
+zr::set-configure zr::setup
+main() { :; }
+CONFIG
+
 assert-failure unknown-tag-default "tag not accepted by config: feature-x" $TMP/basic.zsh prod feature-x
 
 assert-success unknown-tag-allowed $TMP/unknown.zsh prod feature-x feature-x debug
@@ -139,6 +198,20 @@ assert-output-contains unknown-tag-allowed "unknown=feature-x feature-x"
 assert-success configure-sees-unknown $TMP/configure-unknown.zsh prod feature-x seen_unknown=yes
 assert-output-contains configure-sees-unknown "unknown=feature-x"
 assert-output-contains configure-sees-unknown "seen_unknown=yes"
+
+assert-success dynamic-default-entrypoints $TMP/dynamic-default-entrypoints.zsh prod branch=main
+assert-output-contains dynamic-default-entrypoints "dynamic-default branch=main"
+
+assert-success custom-entrypoints $TMP/custom-entrypoints.zsh prod branch=main -- alpha beta
+assert-output-contains custom-entrypoints "custom branch=main argv=alpha beta"
+
+assert-success custom-entrypoints-direct $TMP/custom-entrypoints-direct.zsh prod branch=main
+assert-output-contains custom-entrypoints-direct "direct custom branch=main"
+
+assert-failure missing-custom-main "config does not define run()" $TMP/missing-custom-main.zsh
+assert-failure missing-custom-configure "config does not define setup()" $TMP/missing-custom-configure.zsh
+assert-failure reject-zr-main "invalid main function name: zr::run" $TMP/reject-zr-main.zsh
+assert-failure reject-zr-configure "invalid configure function name: zr::setup" $TMP/reject-zr-configure.zsh
 
 assert-success pattern-valid $TMP/basic.zsh prod branch=feature/x
 assert-output-contains pattern-valid "branch=feature/x"
@@ -164,6 +237,13 @@ if [[ $completion_pattern_name == branch= ]]; then
   record-pass completion-pattern-name
 else
   record-fail completion-pattern-name "got: $completion_pattern_name"
+fi
+
+completion_custom_name=$(zsh $ZR --_zr-complete $TMP/custom-entrypoints.zsh --current br prod)
+if [[ $completion_custom_name == branch= ]]; then
+  record-pass completion-custom-name
+else
+  record-fail completion-custom-name "got: $completion_custom_name"
 fi
 
 completion_pattern_value=$(zsh $ZR --_zr-complete $TMP/basic.zsh --current branch= prod)

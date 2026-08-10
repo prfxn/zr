@@ -254,7 +254,8 @@ are not automatically exported to child processes.
 
 ## Config Contract
 
-A config may provide two framework entry points:
+A config may provide two framework entry points. By default those entry points
+are named `configure` and `main`:
 
 ```zsh
 configure() {
@@ -266,14 +267,61 @@ main() {
 }
 ```
 
-`main()` is required for normal execution.
+Configs may also ask `zr` for the current entrypoint names:
 
-`configure()` is optional. When present, it declares the valid invocation
-interface for the current tag/property context. Its declarations are used for
-both validation and shell completion.
+```zsh
+$(zr::configure)() {
+  ...
+}
 
-The config owns the plain function names `main` and `configure`. The `zr::`
-namespace is reserved for APIs supplied by `zr`.
+$(zr::main)() {
+  ...
+}
+```
+
+`zr::main` and `zr::configure` print the function names `zr` will invoke.
+Their default values are `main` and `configure`.
+
+A config may choose custom entrypoint names before defining those functions:
+
+```zsh
+zr::set-configure setup
+zr::set-main run
+
+setup() {
+  ...
+}
+
+run() {
+  ...
+}
+```
+
+After `zr::set-main NAME` or `zr::set-configure NAME`, the corresponding
+`zr::main` or `zr::configure` query prints the configured value, so this is also
+valid:
+
+```zsh
+zr::set-configure setup
+zr::set-main run
+
+$(zr::configure)() {
+  ...
+}
+
+$(zr::main)() {
+  ...
+}
+```
+
+The main entrypoint is required for normal execution. The configure entrypoint
+is optional unless the config explicitly calls `zr::set-configure`; in that
+case the configured function must exist.
+
+The config owns whichever entrypoint function names it chooses, except names in
+the `zr::` namespace. `zr::set-main` and `zr::set-configure` reject configured
+entrypoint names beginning with `zr::` because that namespace is reserved for
+APIs supplied by `zr`.
 
 Top-level code in the config is ordinary initialization code and runs whenever
 `zr` sources the config, including when the config is sourced for completion.
@@ -290,18 +338,18 @@ identify lexical config path
 -> parse CLI tags and properties
 -> populate ZR_TAGS and ZR_PROPS
 -> source the config
--> invoke configure(), if defined
+-> invoke the configured configure entrypoint, if defined
 -> validate the invocation against the declared interface
--> invoke main() with arguments after --
+-> invoke the configured main entrypoint with arguments after --
 ```
 
-`configure()` sees the already-parsed `ZR_TAGS` and `ZR_PROPS`. This is
+If present, the configure entrypoint sees the already-parsed `ZR_TAGS` and `ZR_PROPS`. This is
 intentional: the valid interface may depend on tags or properties already
 present in the invocation.
 
 If validation fails, `main()` is not invoked.
 
-If `main()` returns, `zr` returns the same status. A config that wants a final
+If the main entrypoint returns, `zr` returns the same status. A config that wants a final
 external command to replace the runner process may use normal zsh `exec`.
 
 ## The `zr::` Configuration API

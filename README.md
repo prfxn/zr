@@ -5,7 +5,7 @@ properties, validation, and completion.
 
 A `zr` config is a trusted zsh file that receives invocation context as tags,
 named properties, and optional positional arguments. The config can declare the
-interface it accepts with `configure()` and perform work in `main()`.
+interface it accepts with `configure()` and perform work in `main()` by default.
 
 See [SPEC.md](./SPEC.md) for the full behavior contract.
 
@@ -23,6 +23,11 @@ single trusted zsh config
 -> validation
 -> main()
 ```
+
+The entrypoint names default to `configure` and `main`. Configs may define
+those names directly, define `$(zr::configure)` and `$(zr::main)`, or call
+`zr::set-configure NAME` and `zr::set-main NAME` before defining custom
+entrypoint functions.
 
 The config remains ordinary zsh. `zr` supplies a lightweight convention for
 parsing invocation context, validating it, and completing it.

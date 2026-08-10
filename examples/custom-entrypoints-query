@@ -1,0 +1,21 @@
+#!/usr/bin/env zr
+
+# Choose config-owned function names, then ask zr for the currently configured
+# names when defining the entrypoint functions.
+zr::set-configure setup
+zr::set-main run
+
+$(zr::configure)() {
+  zr::tag-group mode preview apply
+  zr::tag verbose
+
+  zr::prop target
+  zr::values target local staging prod
+}
+
+$(zr::main)() {
+  print -r -- "custom-entrypoints-query"
+  print -r -- "target=${ZR_PROPS[target]-local}"
+  print -r -- "tags=${ZR_TAGS[*]:-none}"
+  print -r -- "argv=${(qq)@}"
+}
