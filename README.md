@@ -171,9 +171,42 @@ zsh completion.
 `zr --completion` prints the `_zr` completion function, so it can be loaded
 from your zsh startup files or saved anywhere on `fpath`.
 
-For explicit invocations, `_zr` completes `zr CONFIG ...`.
+For explicit invocations of the form `zr path/to/config ...`, load the
+completion function and ensure `zr` itself is registered:
 
-For direct config commands, register the command with:
+```zsh
+autoload -Uz compinit
+compinit
+
+eval "$(zr --completion)"
+```
+
+After that, `_zr` completes:
+
+```zsh
+zr path/to/config ...
+```
+
+For direct path invocations of an executable config whose shebang invokes `zr`,
+register the config path with a pattern completion:
+
+```zsh
+compdef _zr -p '*/curl-order-service'
+```
+
+This supports commands such as:
+
+```zsh
+./examples/curl-order-service ...
+/absolute/path/to/curl-order-service ...
+```
+
+The `-p` form registers a zsh pattern completion. Because zsh tests pattern
+completions against both the typed command and its resolved command path,
+`*/curl-order-service` also matches PATH-style invocations when
+`curl-order-service` is executable on `PATH`.
+
+For direct PATH command names, you may also register the command explicitly:
 
 ```zsh
 compdef _zr curl-my-service
