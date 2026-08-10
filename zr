@@ -232,8 +232,8 @@ zr::classify-tags() {
 }
 
 zr::filename-tags() {
-  local path=$1
-  local base=${path:t}
+  local config_name=$1
+  local base=${config_name:t}
   local -a parts
   parts=("${(@s:.:)base}")
 
@@ -340,11 +340,11 @@ zr::validate-state() {
 }
 
 zr::resolve-config() {
-  local path=$1
-  if [[ $path == */* ]]; then
-    print -r -- "$path"
+  local config_name=$1
+  if [[ $config_name == */* ]]; then
+    print -r -- "$config_name"
   else
-    command -v -- "$path" 2>/dev/null || print -r -- "$path"
+    command -v -- "$config_name" 2>/dev/null || print -r -- "$config_name"
   fi
 }
 
@@ -456,8 +456,11 @@ _zr() {
     fi
   done
 
-  (( ${#nospace[@]} )) && compadd -S "" -a nospace
-  (( ${#spaced[@]} )) && compadd -a spaced
+  local added=1
+  (( ${#nospace[@]} )) && compadd -S "" -a nospace && added=0
+  (( ${#spaced[@]} )) && compadd -a spaced && added=0
+  (( added == 0 )) && _compskip=all
+  return $added
 }
 
 compdef _zr zr

@@ -173,6 +173,26 @@ else
   record-fail completion-pattern-value-empty "got: $completion_pattern_value"
 fi
 
+DIRECT_BIN=$TMP/direct-bin
+mkdir -p $DIRECT_BIN || exit 1
+chmod +x $TMP/basic.zsh
+ln -s $TMP/basic.zsh $DIRECT_BIN/basic.prod
+
+stdout=$TMP/direct-command-path.out
+stderr=$TMP/direct-command-path.err
+if env PATH="$DIRECT_BIN:$PATH" zsh $ZR basic.prod >$stdout 2>$stderr; then
+  record-pass direct-command-path
+else
+  record-fail direct-command-path "$(<$stderr)"
+fi
+
+completion_direct=$(env PATH="$DIRECT_BIN:$PATH" zsh $ZR --_zr-complete basic.prod --current d)
+if [[ $completion_direct == debug ]]; then
+  record-pass completion-direct-command-path
+else
+  record-fail completion-direct-command-path "got: $completion_direct"
+fi
+
 print -r -- ""
 print -r -- "$pass passed, $fail failed"
 (( fail == 0 ))
