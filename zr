@@ -476,19 +476,19 @@ _zr() {
       _files
       return
     fi
-    config=${words[2]}
+    config=${(Q)words[2]}
     start=3
   else
-    config=${words[1]}
+    config=${(Q)words[1]}
     start=2
   fi
 
   [[ -n $config ]] || return
-  current=${words[CURRENT]}
+  current=${(Q)words[CURRENT]}
   script=${_zr_runner:-${commands[zr]:-zr}}
 
   local -a committed candidates spaced nospace
-  committed=("${(@)words[$start,$(( CURRENT - 1 ))]}")
+  committed=("${(@Q)words[$start,$(( CURRENT - 1 ))]}")
   candidates=("${(@f)$($script --_zr-complete "$config" --current "$current" "${committed[@]}" 2>/dev/null)}")
 
   (( ${#candidates[@]} )) || return

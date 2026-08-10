@@ -89,6 +89,14 @@ main() {
 }
 CONFIG
 
+cat >$TMP/dollar-tag.zsh <<'CONFIG'
+configure() {
+  zr::tag "money\$tag"
+  zr::tag plain
+}
+main() { :; }
+CONFIG
+
 cat >$TMP/unknown.zsh <<'CONFIG'
 configure() {
   zr::allow-unknown-tags
@@ -251,6 +259,27 @@ if [[ -z $completion_pattern_value ]]; then
   record-pass completion-pattern-value-empty
 else
   record-fail completion-pattern-value-empty "got: $completion_pattern_value"
+fi
+
+completion_script=$TMP/completion.zsh
+completion_driver=$TMP/completion-driver.zsh
+zsh $ZR --completion >$completion_script
+cat >$completion_driver <<'DRIVER'
+compdef() { :; }
+compadd() {
+  local arrname=${argv[-1]}
+  print -rl -- "${(@P)arrname}"
+}
+source "$1"
+words=(zr "$2" "money\\\$tag" "")
+CURRENT=4
+_zr
+DRIVER
+completion_dollar=$(zsh $completion_driver $completion_script $TMP/dollar-tag.zsh)
+if [[ $completion_dollar == plain ]]; then
+  record-pass completion-dollar-selected
+else
+  record-fail completion-dollar-selected "got: $completion_dollar"
 fi
 
 DIRECT_BIN=$TMP/direct-bin
