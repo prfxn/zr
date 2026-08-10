@@ -60,7 +60,8 @@ curl-my-service.prod.shard1 /v1/orders order_id=99 -- arg1 arg2
 In that form, the lexical command name contributes the tags `curl-my-service`,
 `prod`, and `shard1`, while the symlink target provides the config code.
 Filename-derived tags are accepted automatically; configs only need to declare
-CLI tags they want to validate.
+CLI tags they want to validate. A config can also opt into accepting undeclared
+CLI tags with `zr::allow-unknown-tags`.
 
 ## Arguments
 
@@ -82,6 +83,8 @@ Arguments after `--` are passed to `main()` unchanged.
 #!/usr/bin/env zr
 
 configure() {
+  zr::allow-unknown-tags
+
   zr::tag-group env prod dev staging
   zr::tag-group shard shard1 shard2
 
@@ -90,6 +93,9 @@ configure() {
 
   zr::prop order_id
   zr::values order_id 99 100
+
+  zr::prop branch
+  zr::pattern branch '^[A-Za-z0-9._/-]+$'
 
   if zr::has-tag prod; then
     zr::prop timeout
@@ -111,7 +117,8 @@ A larger runnable example lives at
 [examples/curl-order-service](./examples/curl-order-service). It demonstrates
 ordinary zsh arrays, associative arrays, helper functions, context-sensitive
 declarations, tag groups, arbitrary string tags such as `/v1/orders`,
-constrained property values, and runtime-state dumping:
+constrained and pattern-validated property values, unknown CLI tags, and
+runtime-state dumping:
 
 ```sh
 ./zr ./examples/curl-order-service dev /v1/orders region=us-west format=text -- alpha beta
@@ -124,11 +131,18 @@ Configs read invocation state through:
 
 ```zsh
 ZR_TAGS
+ZR_CLI_TAGS
+ZR_KNOWN_TAGS
+ZR_UNKNOWN_TAGS
 ZR_PROPS
 ```
 
-`ZR_TAGS` is a zsh array containing active tags. `ZR_PROPS` is a zsh
-associative array containing supplied properties.
+`ZR_TAGS` is a zsh array containing effective active tags: filename-derived
+tags first, then CLI tags, with duplicates removed. `ZR_CLI_TAGS` contains CLI
+tag tokens in command-line order and preserves duplicates. `ZR_KNOWN_TAGS`
+contains filename-derived tags and declared CLI tags. `ZR_UNKNOWN_TAGS` contains
+undeclared CLI tag occurrences accepted by `zr::allow-unknown-tags`. `ZR_PROPS`
+is a zsh associative array containing supplied properties.
 
 Convenience helpers are also available:
 

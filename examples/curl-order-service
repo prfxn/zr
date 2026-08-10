@@ -31,8 +31,14 @@ curl_order::active-endpoint() {
   return 1
 }
 
+curl_order::valid-trace-id() {
+  [[ $1 =~ '^[A-Za-z0-9._-]+$' ]]
+}
+
 configure() {
   # The filename tag `curl-order-service` is accepted automatically.
+  zr::allow-unknown-tags
+
   zr::tag-group env dev staging prod
   zr::tag-group endpoint "${CURL_ORDER_ENDPOINT_TAGS[@]}"
   zr::tag debug
@@ -46,10 +52,12 @@ configure() {
 
   if zr::has-tag prod; then
     zr::prop ticket
+    zr::pattern ticket '^CHG-[0-9]+$'
   fi
 
   if zr::has-tag debug; then
     zr::prop trace_id
+    zr::validate trace_id curl_order::valid-trace-id
   fi
 }
 
@@ -69,6 +77,12 @@ main() {
   for tag in "${ZR_TAGS[@]}"; do
     print -r -- "  - $tag"
   done
+
+  print -r -- ""
+  print -r -- "all tags: ${ZR_TAGS[*]:-none}"
+  print -r -- "cli tags: ${ZR_CLI_TAGS[*]:-none}"
+  print -r -- "known tags: ${ZR_KNOWN_TAGS[*]:-none}"
+  print -r -- "unknown tags: ${ZR_UNKNOWN_TAGS[*]:-none}"
 
   print -r -- ""
   print -r -- "properties:"

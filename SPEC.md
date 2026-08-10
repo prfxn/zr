@@ -199,6 +199,9 @@ filename-derived tags appear first in left-to-right filename order, followed by
 CLI tags in command-line order. A duplicate occurrence does not add a second
 array element or change the first occurrence's position.
 
+`ZR_CLI_TAGS` contains only CLI tag tokens, in command-line order. Unlike
+`ZR_TAGS`, it preserves duplicate CLI tag occurrences.
+
 ### `ZR_TAGS`
 
 Before the config's interface is evaluated, `zr` exposes the effective tags as
@@ -208,8 +211,15 @@ the zsh array:
 ZR_TAGS=(service prod shard1)
 ```
 
-Configs should treat `ZR_TAGS` as the canonical representation of invocation
-tags.
+Configs should treat `ZR_TAGS` as the canonical effective representation of
+invocation tags. `ZR_CLI_TAGS` is available when the exact CLI tag stream is
+needed.
+
+`ZR_KNOWN_TAGS` contains filename-derived tags and declared CLI tags, with
+duplicates removed. `ZR_UNKNOWN_TAGS` contains undeclared CLI tag occurrences
+accepted by `zr::allow-unknown-tags`, in CLI order with duplicates preserved.
+Because known and unknown classification depends on the current schema, these
+arrays are refreshed as `configure()` declares tags and when validation runs.
 
 `Tag` is the specification term for these invocation-context labels.
 
@@ -321,6 +331,20 @@ zr::tag canary
 Tag names are arbitrary strings. They are matched exactly against `ZR_TAGS` and
 are not interpreted as shell parameter names.
 
+### Allowing Unknown CLI Tags
+
+A config may accept undeclared CLI tags with:
+
+```zsh
+zr::allow-unknown-tags
+```
+
+When this method is called during `configure()`, CLI tags not declared through
+`zr::tag` or `zr::tag-group` are accepted and recorded in `ZR_UNKNOWN_TAGS`.
+When it is not called, undeclared CLI tags remain validation errors.
+
+Filename-derived tags are accepted automatically regardless of this setting.
+
 ### Declaring Tag Groups
 
 A mutually exclusive set of tags is declared with:
@@ -382,9 +406,37 @@ zr::values region us-east us-west
 ```
 
 When values are declared, a supplied value for that property must exactly match
-one of them. When no values are declared, any string value is accepted.
+one of them.
 
-The declared values are also used for completion of `NAME=<TAB>`.
+A property may instead accept arbitrary values matching a zsh regular
+expression:
+
+```zsh
+zr::prop branch
+zr::pattern branch '^[A-Za-z0-9._/-]+$'
+```
+
+Or arbitrary values accepted by a config-defined validator function:
+
+```zsh
+zr::prop customer
+zr::validate customer validate_customer
+
+validate_customer() {
+  [[ $1 == [a-z0-9-]## ]]
+}
+```
+
+A validator is invoked as `FUNCTION VALUE NAME`. It succeeds by returning zero
+and rejects the value by returning non-zero.
+
+For a given property, at most one of `zr::values`, `zr::pattern`, or
+`zr::validate` may be declared. When none is declared, any string value is
+accepted.
+
+Only values declared through `zr::values` are used for completion of
+`NAME=<TAB>`. Pattern and function validated properties complete as `NAME=` and
+do not suggest arbitrary values.
 
 ### Querying Current Invocation State
 
@@ -453,10 +505,12 @@ returns.
 
 Validation includes at least:
 
-- every active CLI tag is declared by `zr::tag` or `zr::tag-group`;
+- every active CLI tag is declared by `zr::tag` or `zr::tag-group`, unless
+  `zr::allow-unknown-tags` was called;
 - every supplied property is declared by `zr::prop`;
 - at most one active tag belongs to each tag group;
-- supplied property values satisfy any `zr::values` declaration;
+- supplied property values satisfy any `zr::values`, `zr::pattern`, or
+  `zr::validate` declaration;
 - property names are unique in the invocation;
 - tag-group names are unique;
 - a property name does not collide with a tag-group name.
@@ -655,6 +709,8 @@ At minimum:
   suggested as `NAME=` candidates, such as `region=`;
 - when completing `NAME=...`, values declared through `zr::values` are
   suggested as `NAME=value` candidates;
+- properties declared through `zr::pattern` or `zr::validate` complete as
+  `NAME=` only and do not suggest arbitrary values;
 - context-sensitive declarations are reevaluated against the committed command
   line as currently typed.
 
@@ -672,6 +728,8 @@ A complete config may look like:
 #!/usr/bin/env zr
 
 configure() {
+  zr::allow-unknown-tags
+
   zr::tag-group env prod dev staging
   zr::tag-group shard shard1 shard2
 
@@ -680,6 +738,9 @@ configure() {
   zr::prop endpoint
   zr::prop region
   zr::values region us-east us-west
+
+  zr::prop branch
+  zr::pattern branch '^[A-Za-z0-9._/-]+$'
 
   if zr::has-tag prod; then
     zr::prop timeout
@@ -758,7 +819,7 @@ names and values as data rather than executable shell syntax.
 - a tag or property not accepted by the current schema when `configure()` is
   present;
 - multiple active members of one mutually exclusive tag group;
-- a property value outside its declared allowed values;
+- a property value rejected by its declared values, pattern, or validator;
 - duplicate tag-group names;
 - a property/tag-group name collision; and
 - other contradictory schema declarations once their conflict semantics are
@@ -784,9 +845,10 @@ member is not specified here.
 ### Declaration Conflicts Beyond Named Groups
 
 The behavior of duplicate declarations of the same tag or property, membership
-of one tag in multiple groups, repeated `zr::values` calls for the same
-property, and other declaration conflicts not covered by the validation section
-is not specified here.
+of one tag in multiple groups, repeated declarations of the same property
+validation mode, and other declaration conflicts not covered by the validation
+section is not specified here. Combining different property validation modes for
+one property is invalid.
 
 ### Error Formatting and Numeric Exit Codes
 

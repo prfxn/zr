@@ -14,13 +14,23 @@ zr::valid-name() {
 zr::init-state() {
   typeset -ga ZR_TAGS
   typeset -ga ZR_FILENAME_TAGS
+  typeset -ga ZR_CLI_TAGS
+  typeset -ga ZR_KNOWN_TAGS
+  typeset -ga ZR_UNKNOWN_TAGS
   typeset -gA ZR_PROPS
   ZR_TAGS=()
   ZR_FILENAME_TAGS=()
+  ZR_CLI_TAGS=()
+  ZR_KNOWN_TAGS=()
+  ZR_UNKNOWN_TAGS=()
   ZR_PROPS=()
 
+  typeset -gi ZR_SCHEMA_ALLOW_UNKNOWN_TAGS
   typeset -gA ZR_SCHEMA_TAGS
   typeset -gA ZR_SCHEMA_PROPS
+  typeset -gA ZR_SCHEMA_PROP_MODES
+  typeset -gA ZR_SCHEMA_PROP_PATTERNS
+  typeset -gA ZR_SCHEMA_PROP_VALIDATORS
   typeset -ga ZR_SCHEMA_GROUPS
   typeset -ga ZR_SCHEMA_GROUP_TAG_GROUPS
   typeset -ga ZR_SCHEMA_GROUP_TAG_VALUES
@@ -31,13 +41,18 @@ zr::init-state() {
 }
 
 zr::reset-schema() {
+  ZR_SCHEMA_ALLOW_UNKNOWN_TAGS=0
   ZR_SCHEMA_TAGS=()
   ZR_SCHEMA_PROPS=()
+  ZR_SCHEMA_PROP_MODES=()
+  ZR_SCHEMA_PROP_PATTERNS=()
+  ZR_SCHEMA_PROP_VALIDATORS=()
   ZR_SCHEMA_GROUPS=()
   ZR_SCHEMA_GROUP_TAG_GROUPS=()
   ZR_SCHEMA_GROUP_TAG_VALUES=()
   ZR_SCHEMA_VALUE_PROPS=()
   ZR_SCHEMA_VALUE_VALUES=()
+  zr::classify-tags
 }
 
 zr::has-tag() {
@@ -66,6 +81,13 @@ zr::get() {
 zr::tag() {
   (( $# == 1 )) || { print -ru2 -- "zr: zr::tag requires one argument"; return 1; }
   ZR_SCHEMA_TAGS[$1]=1
+  zr::classify-tags
+}
+
+zr::allow-unknown-tags() {
+  (( $# == 0 )) || { print -ru2 -- "zr: zr::allow-unknown-tags takes no arguments"; return 1; }
+  ZR_SCHEMA_ALLOW_UNKNOWN_TAGS=1
+  zr::classify-tags
 }
 
 zr::tag-group() {
@@ -85,6 +107,7 @@ zr::tag-group() {
     ZR_SCHEMA_GROUP_TAG_GROUPS+=("$group")
     ZR_SCHEMA_GROUP_TAG_VALUES+=("$tag")
   done
+  zr::classify-tags
 }
 
 zr::prop() {
@@ -95,16 +118,44 @@ zr::prop() {
   ZR_SCHEMA_PROPS[$name]=1
 }
 
+zr::set-prop-mode() {
+  local name=$1 mode=$2 api=$3
+  local current=${ZR_SCHEMA_PROP_MODES[$name]-}
+  if [[ -n $current && $current != "$mode" ]]; then
+    print -ru2 -- "zr: property '$name' cannot combine zr::$current with zr::$api"
+    return 1
+  fi
+  ZR_SCHEMA_PROP_MODES[$name]=$mode
+}
+
 zr::values() {
   local name=${1-}
   shift || true
   zr::valid-name "$name" || { print -ru2 -- "zr: invalid property name: $name"; return 1; }
+  zr::set-prop-mode "$name" values values || return 1
 
   local value
   for value in "$@"; do
     ZR_SCHEMA_VALUE_PROPS+=("$name")
     ZR_SCHEMA_VALUE_VALUES+=("$value")
   done
+}
+
+zr::pattern() {
+  local name=${1-} pattern=${2-}
+  (( $# == 2 )) || { print -ru2 -- "zr: zr::pattern requires property name and pattern"; return 1; }
+  zr::valid-name "$name" || { print -ru2 -- "zr: invalid property name: $name"; return 1; }
+  zr::set-prop-mode "$name" pattern pattern || return 1
+  ZR_SCHEMA_PROP_PATTERNS[$name]=$pattern
+}
+
+zr::validate() {
+  local name=${1-} validator=${2-}
+  (( $# == 2 )) || { print -ru2 -- "zr: zr::validate requires property name and function"; return 1; }
+  zr::valid-name "$name" || { print -ru2 -- "zr: invalid property name: $name"; return 1; }
+  [[ -n $validator ]] || { print -ru2 -- "zr: missing validator function name"; return 1; }
+  zr::set-prop-mode "$name" validate validate || return 1
+  ZR_SCHEMA_PROP_VALIDATORS[$name]=$validator
 }
 
 zr::props-to-env() {
@@ -159,6 +210,27 @@ zr::add-tag() {
   (( ${ZR_TAGS[(Ie)$tag]} == 0 )) && ZR_TAGS+=("$tag")
 }
 
+zr::add-known-tag() {
+  local tag=$1
+  (( ${ZR_KNOWN_TAGS[(Ie)$tag]} == 0 )) && ZR_KNOWN_TAGS+=("$tag")
+}
+
+zr::classify-tags() {
+  local tag
+  ZR_KNOWN_TAGS=()
+  ZR_UNKNOWN_TAGS=()
+  for tag in "${ZR_FILENAME_TAGS[@]}"; do
+    zr::add-known-tag "$tag"
+  done
+  for tag in "${ZR_CLI_TAGS[@]}"; do
+    if (( ${+ZR_SCHEMA_TAGS[$tag]} )); then
+      zr::add-known-tag "$tag"
+    elif (( ZR_SCHEMA_ALLOW_UNKNOWN_TAGS )); then
+      ZR_UNKNOWN_TAGS+=("$tag")
+    fi
+  done
+}
+
 zr::filename-tags() {
   local path=$1
   local base=${path:t}
@@ -170,6 +242,7 @@ zr::filename-tags() {
     if [[ -n $part ]]; then
       zr::add-tag "$part"
       (( ${ZR_FILENAME_TAGS[(Ie)$part]} == 0 )) && ZR_FILENAME_TAGS+=("$part")
+      zr::classify-tags
     fi
   done
 }
@@ -195,9 +268,11 @@ zr::parse-args() {
         (( ! ${+ZR_PROPS[$name]} )) || zr::die "property supplied more than once: $name"
         ZR_PROPS[$name]=$value
       else
+        ZR_CLI_TAGS+=("$arg")
         zr::add-tag "$arg"
       fi
     else
+      ZR_CLI_TAGS+=("$arg")
       zr::add-tag "$arg"
     fi
   done
@@ -222,20 +297,36 @@ zr::property-value-valid() {
   return 1
 }
 
-zr::validate() {
-  local tag name group active value
+zr::validate-state() {
+  local tag name group active value mode validator
 
-  for tag in "${ZR_TAGS[@]}"; do
-    (( ${ZR_FILENAME_TAGS[(Ie)$tag]} )) && continue
-    (( ${+ZR_SCHEMA_TAGS[$tag]} )) || zr::die "tag not accepted by config: $tag"
+  zr::classify-tags
+  for tag in "${ZR_CLI_TAGS[@]}"; do
+    (( ${+ZR_SCHEMA_TAGS[$tag]} || ZR_SCHEMA_ALLOW_UNKNOWN_TAGS )) || zr::die "tag not accepted by config: $tag"
   done
 
   for name in "${(@k)ZR_PROPS}"; do
     (( ${+ZR_SCHEMA_PROPS[$name]} )) || zr::die "property not accepted by config: $name"
-    if zr::property-has-values "$name"; then
-      value=${ZR_PROPS[$name]}
-      zr::property-value-valid "$name" "$value" || zr::die "invalid value for property '$name': $value"
-    fi
+    value=${ZR_PROPS[$name]}
+    mode=${ZR_SCHEMA_PROP_MODES[$name]-}
+    case $mode in
+      values)
+        zr::property-value-valid "$name" "$value" || zr::die "invalid value for property '$name': $value"
+        ;;
+      pattern)
+        [[ $value =~ ${ZR_SCHEMA_PROP_PATTERNS[$name]} ]] || zr::die "invalid value for property '$name': $value"
+        ;;
+      validate)
+        validator=${ZR_SCHEMA_PROP_VALIDATORS[$name]}
+        (( $+functions[$validator] )) || zr::die "validator for property '$name' is not defined: $validator"
+        "$validator" "$value" "$name" || zr::die "invalid value for property '$name': $value"
+        ;;
+      "")
+        ;;
+      *)
+        zr::die "unknown validation mode for property '$name': $mode"
+        ;;
+    esac
   done
 
   for group in "${ZR_SCHEMA_GROUPS[@]}"; do
@@ -411,7 +502,7 @@ zr::main() {
   if (( $+functions[configure] )); then
     zr::reset-schema
     configure || zr::die "configure() failed"
-    zr::validate
+    zr::validate-state
   fi
 
   main "${ZR_MAIN_ARGS[@]}"
