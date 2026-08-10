@@ -1,0 +1,420 @@
+#!/usr/bin/env zsh
+
+typeset -gr ZR_SCRIPT=${0:A}
+
+zr::die() {
+  print -ru2 -- "zr: $*"
+  exit 1
+}
+
+zr::valid-name() {
+  [[ ${1-} =~ '^[A-Za-z_][A-Za-z0-9_]*$' ]]
+}
+
+zr::init-state() {
+  typeset -ga ZR_TAGS
+  typeset -ga ZR_FILENAME_TAGS
+  typeset -gA ZR_PROPS
+  ZR_TAGS=()
+  ZR_FILENAME_TAGS=()
+  ZR_PROPS=()
+
+  typeset -gA ZR_SCHEMA_TAGS
+  typeset -gA ZR_SCHEMA_PROPS
+  typeset -ga ZR_SCHEMA_GROUPS
+  typeset -ga ZR_SCHEMA_GROUP_TAG_GROUPS
+  typeset -ga ZR_SCHEMA_GROUP_TAG_VALUES
+  typeset -ga ZR_SCHEMA_VALUE_PROPS
+  typeset -ga ZR_SCHEMA_VALUE_VALUES
+
+  zr::reset-schema
+}
+
+zr::reset-schema() {
+  ZR_SCHEMA_TAGS=()
+  ZR_SCHEMA_PROPS=()
+  ZR_SCHEMA_GROUPS=()
+  ZR_SCHEMA_GROUP_TAG_GROUPS=()
+  ZR_SCHEMA_GROUP_TAG_VALUES=()
+  ZR_SCHEMA_VALUE_PROPS=()
+  ZR_SCHEMA_VALUE_VALUES=()
+}
+
+zr::has-tag() {
+  local wanted=${1-}
+  local tag
+  for tag in "${ZR_TAGS[@]}"; do
+    [[ $tag == "$wanted" ]] && return 0
+  done
+  return 1
+}
+
+zr::has-prop() {
+  local name=${1-}
+  (( ${+ZR_PROPS[$name]} ))
+}
+
+zr::get() {
+  local name=${1-}
+  if (( ${+ZR_PROPS[$name]} )); then
+    print -r -- "${ZR_PROPS[$name]}"
+    return 0
+  fi
+  return 1
+}
+
+zr::tag() {
+  (( $# == 1 )) || { print -ru2 -- "zr: zr::tag requires one argument"; return 1; }
+  ZR_SCHEMA_TAGS[$1]=1
+}
+
+zr::tag-group() {
+  local group=${1-}
+  shift || true
+
+  zr::valid-name "$group" || { print -ru2 -- "zr: invalid tag group name: $group"; return 1; }
+  (( $# > 0 )) || { print -ru2 -- "zr: tag group '$group' has no tags"; return 1; }
+  (( ${ZR_SCHEMA_GROUPS[(Ie)$group]} == 0 )) || { print -ru2 -- "zr: duplicate tag group: $group"; return 1; }
+  (( ! ${+ZR_SCHEMA_PROPS[$group]} )) || { print -ru2 -- "zr: tag group collides with property: $group"; return 1; }
+
+  ZR_SCHEMA_GROUPS+=("$group")
+
+  local tag
+  for tag in "$@"; do
+    ZR_SCHEMA_TAGS[$tag]=1
+    ZR_SCHEMA_GROUP_TAG_GROUPS+=("$group")
+    ZR_SCHEMA_GROUP_TAG_VALUES+=("$tag")
+  done
+}
+
+zr::prop() {
+  local name=${1-}
+  (( $# == 1 )) || { print -ru2 -- "zr: zr::prop requires one argument"; return 1; }
+  zr::valid-name "$name" || { print -ru2 -- "zr: invalid property name: $name"; return 1; }
+  (( ${ZR_SCHEMA_GROUPS[(Ie)$name]} == 0 )) || { print -ru2 -- "zr: property collides with tag group: $name"; return 1; }
+  ZR_SCHEMA_PROPS[$name]=1
+}
+
+zr::values() {
+  local name=${1-}
+  shift || true
+  zr::valid-name "$name" || { print -ru2 -- "zr: invalid property name: $name"; return 1; }
+
+  local value
+  for value in "$@"; do
+    ZR_SCHEMA_VALUE_PROPS+=("$name")
+    ZR_SCHEMA_VALUE_VALUES+=("$value")
+  done
+}
+
+zr::props-to-env() {
+  local -a names
+  local name
+  if (( $# )); then
+    names=("$@")
+  else
+    names=("${(@k)ZR_PROPS}")
+  fi
+
+  for name in "${names[@]}"; do
+    zr::valid-name "$name" || { print -ru2 -- "zr: invalid property name: $name"; return 1; }
+    (( ${+ZR_PROPS[$name]} )) || continue
+    typeset -g "${name}=${ZR_PROPS[$name]}"
+  done
+}
+
+zr::active-tag-for-group() {
+  local group=$1
+  local i tag active=
+  for (( i = 1; i <= ${#ZR_SCHEMA_GROUP_TAG_GROUPS[@]}; i++ )); do
+    [[ ${ZR_SCHEMA_GROUP_TAG_GROUPS[$i]} == "$group" ]] || continue
+    tag=${ZR_SCHEMA_GROUP_TAG_VALUES[$i]}
+    if zr::has-tag "$tag"; then
+      [[ -z $active ]] || return 2
+      active=$tag
+    fi
+  done
+  [[ -n $active ]] || return 1
+  print -r -- "$active"
+}
+
+zr::tag-groups-to-env() {
+  local -a groups
+  local group active
+  if (( $# )); then
+    groups=("$@")
+  else
+    groups=("${ZR_SCHEMA_GROUPS[@]}")
+  fi
+
+  for group in "${groups[@]}"; do
+    zr::valid-name "$group" || { print -ru2 -- "zr: invalid tag group name: $group"; return 1; }
+    active=$(zr::active-tag-for-group "$group") || continue
+    typeset -g "${group}=${active}"
+  done
+}
+
+zr::add-tag() {
+  local tag=$1
+  (( ${ZR_TAGS[(Ie)$tag]} == 0 )) && ZR_TAGS+=("$tag")
+}
+
+zr::filename-tags() {
+  local path=$1
+  local base=${path:t}
+  local -a parts
+  parts=("${(@s:.:)base}")
+
+  local part
+  for part in "${parts[@]}"; do
+    if [[ -n $part ]]; then
+      zr::add-tag "$part"
+      (( ${ZR_FILENAME_TAGS[(Ie)$part]} == 0 )) && ZR_FILENAME_TAGS+=("$part")
+    fi
+  done
+}
+
+zr::parse-args() {
+  local arg name value
+  typeset -ga ZR_MAIN_ARGS
+  ZR_MAIN_ARGS=()
+
+  while (( $# )); do
+    arg=$1
+    shift
+
+    if [[ $arg == -- ]]; then
+      ZR_MAIN_ARGS=("$@")
+      return 0
+    fi
+
+    if [[ $arg == *=* ]]; then
+      name=${arg%%=*}
+      value=${arg#*=}
+      if zr::valid-name "$name"; then
+        (( ! ${+ZR_PROPS[$name]} )) || zr::die "property supplied more than once: $name"
+        ZR_PROPS[$name]=$value
+      else
+        zr::add-tag "$arg"
+      fi
+    else
+      zr::add-tag "$arg"
+    fi
+  done
+}
+
+zr::property-has-values() {
+  local name=$1
+  local prop
+  for prop in "${ZR_SCHEMA_VALUE_PROPS[@]}"; do
+    [[ $prop == "$name" ]] && return 0
+  done
+  return 1
+}
+
+zr::property-value-valid() {
+  local name=$1 value=$2
+  local i
+  for (( i = 1; i <= ${#ZR_SCHEMA_VALUE_PROPS[@]}; i++ )); do
+    [[ ${ZR_SCHEMA_VALUE_PROPS[$i]} == "$name" ]] || continue
+    [[ ${ZR_SCHEMA_VALUE_VALUES[$i]} == "$value" ]] && return 0
+  done
+  return 1
+}
+
+zr::validate() {
+  local tag name group active value
+
+  for tag in "${ZR_TAGS[@]}"; do
+    (( ${ZR_FILENAME_TAGS[(Ie)$tag]} )) && continue
+    (( ${+ZR_SCHEMA_TAGS[$tag]} )) || zr::die "tag not accepted by config: $tag"
+  done
+
+  for name in "${(@k)ZR_PROPS}"; do
+    (( ${+ZR_SCHEMA_PROPS[$name]} )) || zr::die "property not accepted by config: $name"
+    if zr::property-has-values "$name"; then
+      value=${ZR_PROPS[$name]}
+      zr::property-value-valid "$name" "$value" || zr::die "invalid value for property '$name': $value"
+    fi
+  done
+
+  for group in "${ZR_SCHEMA_GROUPS[@]}"; do
+    active=$(zr::active-tag-for-group "$group")
+    case $? in
+      0|1) ;;
+      2) zr::die "multiple tags supplied for group '$group'" ;;
+      *) zr::die "could not validate tag group '$group'" ;;
+    esac
+  done
+}
+
+zr::resolve-config() {
+  local path=$1
+  if [[ $path == */* ]]; then
+    print -r -- "$path"
+  else
+    command -v -- "$path" 2>/dev/null || print -r -- "$path"
+  fi
+}
+
+zr::tag-blocked-by-active-group() {
+  local candidate=$1
+  local i j group tag
+  for (( i = 1; i <= ${#ZR_SCHEMA_GROUP_TAG_GROUPS[@]}; i++ )); do
+    [[ ${ZR_SCHEMA_GROUP_TAG_VALUES[$i]} == "$candidate" ]] || continue
+    group=${ZR_SCHEMA_GROUP_TAG_GROUPS[$i]}
+    for tag in "${ZR_TAGS[@]}"; do
+      for (( j = 1; j <= ${#ZR_SCHEMA_GROUP_TAG_GROUPS[@]}; j++ )); do
+        [[ ${ZR_SCHEMA_GROUP_TAG_GROUPS[$j]} == "$group" ]] || continue
+        [[ ${ZR_SCHEMA_GROUP_TAG_VALUES[$j]} == "$tag" ]] && return 0
+      done
+    done
+  done
+  return 1
+}
+
+zr::complete() {
+  (( $# >= 1 )) || return 1
+
+  local config_lexical=$1
+  shift
+
+  local current=
+  if [[ ${1-} == --current ]]; then
+    shift
+    current=${1-}
+    shift || true
+  fi
+
+  zr::filename-tags "$config_lexical"
+  zr::parse-args "$@"
+
+  local config_path
+  config_path=$(zr::resolve-config "$config_lexical") || return 1
+  [[ -r $config_path ]] || return 1
+
+  source "$config_path" || return 1
+  (( $+functions[configure] )) || return 0
+
+  zr::reset-schema
+  configure || return 1
+
+  local name value tag prop i
+  if [[ $current == *=* ]]; then
+    name=${current%%=*}
+    value=${current#*=}
+    if zr::valid-name "$name"; then
+      for (( i = 1; i <= ${#ZR_SCHEMA_VALUE_PROPS[@]}; i++ )); do
+        [[ ${ZR_SCHEMA_VALUE_PROPS[$i]} == "$name" ]] || continue
+        [[ ${ZR_SCHEMA_VALUE_VALUES[$i]} == "$value"* ]] || continue
+        print -r -- "${name}=${ZR_SCHEMA_VALUE_VALUES[$i]}"
+      done
+      return 0
+    fi
+  fi
+
+  for tag in "${(@k)ZR_SCHEMA_TAGS}"; do
+    (( ${ZR_TAGS[(Ie)$tag]} == 0 )) || continue
+    zr::tag-blocked-by-active-group "$tag" && continue
+    [[ $tag == "$current"* ]] && print -r -- "$tag"
+  done
+
+  for prop in "${(@k)ZR_SCHEMA_PROPS}"; do
+    (( ${+ZR_PROPS[$prop]} )) && continue
+    [[ $prop == "$current"* ]] && print -r -- "${prop}="
+  done
+}
+
+zr::print-completion() {
+  local runner=$ZR_SCRIPT
+  print -r -- "#compdef zr"
+  print -r -- "typeset -g _zr_runner=${(qqq)runner}"
+  cat <<'ZR_COMPLETION'
+
+_zr() {
+  local config start current script
+
+  if [[ ${words[1]:t} == zr ]]; then
+    if (( CURRENT == 2 )); then
+      _files
+      return
+    fi
+    config=${words[2]}
+    start=3
+  else
+    config=${words[1]}
+    start=2
+  fi
+
+  [[ -n $config ]] || return
+  current=${words[CURRENT]}
+  script=${_zr_runner:-${commands[zr]:-zr}}
+
+  local -a committed candidates spaced nospace
+  committed=("${(@)words[$start,$(( CURRENT - 1 ))]}")
+  candidates=("${(@f)$($script --_zr-complete "$config" --current "$current" "${committed[@]}" 2>/dev/null)}")
+
+  (( ${#candidates[@]} )) || return
+
+  local candidate
+  for candidate in "${candidates[@]}"; do
+    if [[ $candidate == *= ]]; then
+      nospace+=("$candidate")
+    else
+      spaced+=("$candidate")
+    fi
+  done
+
+  (( ${#nospace[@]} )) && compadd -S "" -a nospace
+  (( ${#spaced[@]} )) && compadd -a spaced
+}
+
+compdef _zr zr
+ZR_COMPLETION
+
+}
+
+zr::main() {
+  case ${1-} in
+    --completion)
+      zr::print-completion
+      return 0
+      ;;
+    --_zr-complete)
+      shift
+      zr::init-state
+      zr::complete "$@"
+      return $?
+      ;;
+  esac
+
+  (( $# >= 1 )) || zr::die "missing config operand"
+
+  zr::init-state
+
+  local config_lexical=$1
+  shift
+
+  zr::filename-tags "$config_lexical"
+  zr::parse-args "$@"
+
+  local config_path
+  config_path=$(zr::resolve-config "$config_lexical") || zr::die "config not found: $config_lexical"
+  [[ -r $config_path ]] || zr::die "config cannot be read: $config_lexical"
+
+  source "$config_path" || zr::die "failed to source config: $config_lexical"
+
+  if (( ! $+functions[main] )); then
+    zr::die "config does not define main()"
+  fi
+
+  if (( $+functions[configure] )); then
+    zr::reset-schema
+    configure || zr::die "configure() failed"
+    zr::validate
+  fi
+
+  main "${ZR_MAIN_ARGS[@]}"
+}
+
+zr::main "$@"

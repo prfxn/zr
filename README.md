@@ -59,6 +59,8 @@ curl-my-service.prod.shard1 /v1/orders order_id=99 -- arg1 arg2
 
 In that form, the lexical command name contributes the tags `curl-my-service`,
 `prod`, and `shard1`, while the symlink target provides the config code.
+Filename-derived tags are accepted automatically; configs only need to declare
+CLI tags they want to validate.
 
 ## Arguments
 
@@ -105,6 +107,17 @@ main() {
 }
 ```
 
+A larger runnable example lives at
+[examples/curl-order-service](./examples/curl-order-service). It demonstrates
+ordinary zsh arrays, associative arrays, helper functions, context-sensitive
+declarations, tag groups, arbitrary string tags such as `/v1/orders`,
+constrained property values, and runtime-state dumping:
+
+```sh
+./zr ./examples/curl-order-service dev /v1/orders region=us-west format=text -- alpha beta
+./zr ./examples/curl-order-service prod /v1/invoices debug region=us-east format=json ticket=CHG-123 trace_id=abc -- deploy
+```
+
 ## Runtime State
 
 Configs read invocation state through:
@@ -140,6 +153,9 @@ values to child processes.
 
 `zr` is designed so the same `configure()` declarations power validation and
 zsh completion.
+
+`zr --completion` prints the `_zr` completion function, so it can be loaded
+from your zsh startup files or saved anywhere on `fpath`.
 
 For explicit invocations, `_zr` completes `zr CONFIG ...`.
 

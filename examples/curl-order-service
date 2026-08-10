@@ -1,0 +1,101 @@
+#!/usr/bin/env zr
+
+# Top-level zsh is normal initialization code. It runs when zr sources this
+# config for execution or completion, so keep irreversible work inside main().
+typeset -ga CURL_ORDER_ENDPOINT_TAGS=(/v1/orders /v1/invoices /v1/search)
+typeset -gA CURL_ORDER_ENDPOINT_LABELS=(
+  /v1/orders   list-orders
+  /v1/invoices list-invoices
+  /v1/search   search-orders
+)
+typeset -gA CURL_ORDER_METHODS=(
+  /v1/orders   GET
+  /v1/invoices GET
+  /v1/search   POST
+)
+
+curl_order::join() {
+  local sep=$1
+  shift
+  print -r -- "${(pj:$sep:)@}"
+}
+
+curl_order::active-endpoint() {
+  local endpoint
+  for endpoint in "${CURL_ORDER_ENDPOINT_TAGS[@]}"; do
+    if zr::has-tag "$endpoint"; then
+      print -r -- "$endpoint"
+      return 0
+    fi
+  done
+  return 1
+}
+
+configure() {
+  # The filename tag `curl-order-service` is accepted automatically.
+  zr::tag-group env dev staging prod
+  zr::tag-group endpoint "${CURL_ORDER_ENDPOINT_TAGS[@]}"
+  zr::tag debug
+  zr::tag dry-run
+
+  zr::prop region
+  zr::values region us-east us-west eu-central
+
+  zr::prop format
+  zr::values format text json
+
+  if zr::has-tag prod; then
+    zr::prop ticket
+  fi
+
+  if zr::has-tag debug; then
+    zr::prop trace_id
+  fi
+}
+
+main() {
+  local selected_endpoint endpoint_label method
+  selected_endpoint=$(curl_order::active-endpoint) || selected_endpoint=none
+  endpoint_label=${CURL_ORDER_ENDPOINT_LABELS[$selected_endpoint]-none}
+  method=${CURL_ORDER_METHODS[$selected_endpoint]-none}
+
+  zr::props-to-env region format ticket trace_id
+  zr::tag-groups-to-env env
+
+  print -r -- "zr curl-order-service"
+  print -r -- ""
+  print -r -- "active tags:"
+  local tag
+  for tag in "${ZR_TAGS[@]}"; do
+    print -r -- "  - $tag"
+  done
+
+  print -r -- ""
+  print -r -- "properties:"
+  local prop
+  for prop in "${(@ok)ZR_PROPS}"; do
+    print -r -- "  $prop=${ZR_PROPS[$prop]}"
+  done
+
+  print -r -- ""
+  print -r -- "materialized shell parameters:"
+  print -r -- "  env=${env-unset}"
+  print -r -- "  region=${region-unset}"
+  print -r -- "  format=${format-unset}"
+  print -r -- "  ticket=${ticket-unset}"
+  print -r -- "  trace_id=${trace_id-unset}"
+
+  print -r -- ""
+  print -r -- "zsh-derived values:"
+  print -r -- "  endpoint tags: $(curl_order::join ', ' "${CURL_ORDER_ENDPOINT_TAGS[@]}")"
+  print -r -- "  selected endpoint tag: $selected_endpoint"
+  print -r -- "  selected endpoint label: $endpoint_label"
+  print -r -- "  HTTP method: $method"
+  print -r -- "  main argc: $#"
+  print -r -- "  main argv: ${(qq)@}"
+
+  if zr::has-tag dry-run; then
+    print -r -- ""
+    print -r -- "dry-run selected: no external command would be executed"
+  fi
+}

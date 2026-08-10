@@ -135,7 +135,9 @@ The two sources are additive.
 ### Filename Tags
 
 The basename of the config path as invoked is split on `.`. Every non-empty
-component is registered as a tag.
+component is registered as a tag. Filename-derived tags are always
+accepted as invocation context; configs do not need to declare their own
+filename components with `zr::tag`.
 
 For example:
 
@@ -436,8 +438,10 @@ language.
 The declarations produced by the current call to `configure()` are
 authoritative for that invocation state. Declaration state starts fresh for each
 `configure()` call: declarations are additive within a single call, but are not
-accumulated across calls. A tag or property that is not declared by the
-resulting interface is invalid when `configure()` is present.
+accumulated across calls. A CLI tag or property that is not declared by the
+resulting interface is invalid when `configure()` is present. Filename-derived
+tags are accepted automatically, though they may still match declared tag-group
+members.
 
 This same rule makes completion naturally context-sensitive: only interface
 elements declared for the command line as currently typed are candidates.
@@ -449,7 +453,7 @@ returns.
 
 Validation includes at least:
 
-- every active tag is declared by `zr::tag` or `zr::tag-group`;
+- every active CLI tag is declared by `zr::tag` or `zr::tag-group`;
 - every supplied property is declared by `zr::prop`;
 - at most one active tag belongs to each tag group;
 - supplied property values satisfy any `zr::values` declaration;
@@ -457,7 +461,9 @@ Validation includes at least:
 - tag-group names are unique;
 - a property name does not collide with a tag-group name.
 
-Filename-derived tags participate in validation exactly like CLI tags.
+Filename-derived tags are accepted automatically and do not need declaration.
+When a filename-derived tag is also a member of a declared tag group, it still
+participates in that group for mutual-exclusion validation.
 
 When `configure()` is absent, `zr` has no declared schema against which to
 validate tags or properties. Parsing rules still apply.
