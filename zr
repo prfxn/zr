@@ -35,6 +35,11 @@ zr::configure() {
   print -r -- "$ZR_CONFIG_CONFIGURE"
 }
 
+zr::ready() {
+  (( ARGC == 0 )) || { print -ru2 -- "zr: zr::ready takes no arguments"; return 1; }
+  (( _ZR_READY ))
+}
+
 zr::set-main() {
   local name=${1-}
   (( $# == 1 )) || zr::die "zr::set-main requires one argument"
@@ -59,12 +64,14 @@ zr::init-state() {
   typeset -ga ZR_KNOWN_TAGS
   typeset -ga ZR_UNKNOWN_TAGS
   typeset -gA ZR_PROPS
+  typeset -gi _ZR_READY
   ZR_TAGS=()
   ZR_FILENAME_TAGS=()
   ZR_CLI_TAGS=()
   ZR_KNOWN_TAGS=()
   ZR_UNKNOWN_TAGS=()
   ZR_PROPS=()
+  _ZR_READY=0
 
   typeset -gi ZR_SCHEMA_ALLOW_UNKNOWN_TAGS
   typeset -gA ZR_SCHEMA_TAGS
@@ -564,6 +571,7 @@ zr::_main() {
     zr::die "config does not define $configure_fn()"
   fi
 
+  _ZR_READY=1
   "$main_fn" "${ZR_MAIN_ARGS[@]}"
 }
 

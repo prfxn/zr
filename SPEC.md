@@ -499,6 +499,7 @@ Configs may query the current parsed invocation through `ZR_TAGS` and
 zr::has-tag TAG
 zr::has-prop NAME
 zr::get NAME
+zr::ready
 ```
 
 `zr::has-tag TAG` succeeds when `TAG` is present in `ZR_TAGS`.
@@ -509,6 +510,11 @@ its value is empty.
 `zr::get NAME` writes the property's value to stdout. A missing property is
 distinct from an explicitly supplied empty value and should produce a non-zero
 status.
+
+`zr::ready` succeeds after the config has been sourced, any configured
+configure entrypoint has run, validation has passed, and the main entrypoint is
+being invoked. It fails during top-level config loading, completion, and
+configure evaluation.
 
 The query APIs read invocation state; they do not declare interface elements.
 

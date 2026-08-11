@@ -149,6 +149,11 @@ contains filename-derived tags and declared CLI tags. `ZR_UNKNOWN_TAGS` contains
 undeclared CLI tag occurrences accepted by `zr::allow-unknown-tags`. `ZR_PROPS`
 is a zsh associative array containing supplied properties.
 
+`zr::ready` returns success only after the config has been sourced, any
+configured `configure()` entrypoint has run, validation has passed, and `main()`
+is being invoked. It returns failure during top-level config loading, completion,
+and `configure()`.
+
 Convenience helpers are also available:
 
 ```zsh
@@ -156,6 +161,7 @@ zr::has-tag TAG
 zr::has-tag-for-group GROUP
 zr::has-prop NAME
 zr::get NAME
+zr::ready
 ```
 
 Properties and tag groups are not automatically turned into ordinary shell

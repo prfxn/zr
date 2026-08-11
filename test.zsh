@@ -133,6 +133,27 @@ main() {
 }
 CONFIG
 
+cat >$TMP/ready.zsh <<'CONFIG'
+ready_state() {
+  if zr::ready; then
+    print -r -- "$1=ready"
+  else
+    print -r -- "$1=not-ready"
+  fi
+}
+
+ready_state top
+
+configure() {
+  ready_state configure
+  zr::tag prod
+}
+
+main() {
+  ready_state main
+}
+CONFIG
+
 cat >$TMP/conflict.zsh <<'CONFIG'
 configure() {
   zr::prop branch
@@ -227,6 +248,11 @@ assert-output-contains unknown-tag-allowed "unknown=feature-x feature-x"
 assert-success group-query $TMP/group-query.zsh prod
 assert-output-contains group-query "has_env=yes"
 assert-output-contains group-query "has_shard=no"
+
+assert-success ready $TMP/ready.zsh prod
+assert-output-contains ready "top=not-ready"
+assert-output-contains ready "configure=not-ready"
+assert-output-contains ready "main=ready"
 
 assert-success configure-sees-unknown $TMP/configure-unknown.zsh prod feature-x seen_unknown=yes
 assert-output-contains configure-sees-unknown "unknown=feature-x"
