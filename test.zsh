@@ -83,7 +83,6 @@ main() {
   print -r -- "tags=${ZR_TAGS[*]}"
   print -r -- "cli=${ZR_CLI_TAGS[*]}"
   print -r -- "known=${ZR_KNOWN_TAGS[*]}"
-  print -r -- "unknown=${ZR_UNKNOWN_TAGS[*]}"
   print -r -- "branch=${ZR_PROPS[branch]-}"
   print -r -- "customer=${ZR_PROPS[customer]-}"
 }
@@ -97,18 +96,28 @@ configure() {
 main() { :; }
 CONFIG
 
-cat >$TMP/unknown.zsh <<'CONFIG'
+cat >$TMP/args.zsh <<'CONFIG'
 configure() {
-  zr::allow-unknown-tags
   zr::tag-group env prod dev
   zr::tag debug
+  zr::prop region
+  zr::arg feature
+  zr::arg build
+  zr::path-arg config_file
 }
 
 main() {
   print -r -- "tags=${ZR_TAGS[*]}"
   print -r -- "cli=${ZR_CLI_TAGS[*]}"
   print -r -- "known=${ZR_KNOWN_TAGS[*]}"
-  print -r -- "unknown=${ZR_UNKNOWN_TAGS[*]}"
+  print -r -- "feature=$(zr::get-arg feature)"
+  print -r -- "build=$(zr::get-arg build)"
+  print -r -- "config_file=$(zr::get-arg config_file)"
+  if zr::get-arg missing >/dev/null; then
+    print -r -- "missing=yes"
+  else
+    print -r -- "missing=no"
+  fi
 }
 CONFIG
 
@@ -163,18 +172,18 @@ configure() {
 main() { :; }
 CONFIG
 
-cat >$TMP/configure-unknown.zsh <<'CONFIG'
+cat >$TMP/dynamic-args.zsh <<'CONFIG'
 configure() {
-  zr::allow-unknown-tags
   zr::tag prod
-  if (( ${#ZR_UNKNOWN_TAGS[@]} )); then
-    zr::prop seen_unknown
+  zr::arg feature
+  if [[ $(zr::get-arg feature) == feature-x ]]; then
+    zr::prop feature_seen
   fi
 }
 
 main() {
-  print -r -- "unknown=${ZR_UNKNOWN_TAGS[*]}"
-  print -r -- "seen_unknown=${ZR_PROPS[seen_unknown]-}"
+  print -r -- "feature=$(zr::get-arg feature)"
+  print -r -- "feature_seen=${ZR_PROPS[feature_seen]-}"
 }
 CONFIG
 
@@ -237,13 +246,59 @@ zr::set-configure zr::setup
 main() { :; }
 CONFIG
 
-assert-failure unknown-tag-default "tag not accepted by config: feature-x" $TMP/basic.zsh prod feature-x
+cat >$TMP/duplicate-arg.zsh <<'CONFIG'
+configure() {
+  zr::arg value
+  zr::path-arg value
+}
+main() { :; }
+CONFIG
 
-assert-success unknown-tag-allowed $TMP/unknown.zsh prod feature-x feature-x debug
-assert-output-contains unknown-tag-allowed "tags=unknown zsh prod feature-x debug"
-assert-output-contains unknown-tag-allowed "cli=prod feature-x feature-x debug"
-assert-output-contains unknown-tag-allowed "known=unknown zsh prod debug"
-assert-output-contains unknown-tag-allowed "unknown=feature-x feature-x"
+cat >$TMP/arg-prop-collision.zsh <<'CONFIG'
+configure() {
+  zr::arg target
+  zr::prop target
+}
+main() { :; }
+CONFIG
+
+cat >$TMP/arg-group-collision.zsh <<'CONFIG'
+configure() {
+  zr::arg env
+  zr::tag-group env prod dev
+}
+main() { :; }
+CONFIG
+
+assert-failure undeclared-bare-token-default "argument not accepted by config: feature-x" $TMP/basic.zsh prod feature-x
+
+assert-success arg-capture $TMP/args.zsh prod feature-x build-17 ./config.yml debug
+assert-output-contains arg-capture "tags=args zsh prod debug"
+assert-output-contains arg-capture "cli=prod feature-x build-17 ./config.yml debug"
+assert-output-contains arg-capture "known=args zsh prod debug"
+assert-output-contains arg-capture "feature=feature-x"
+assert-output-contains arg-capture "build=build-17"
+assert-output-contains arg-capture "config_file=./config.yml"
+assert-output-contains arg-capture "missing=no"
+
+assert-success arg-optional $TMP/args.zsh prod feature-x
+assert-output-contains arg-optional "feature=feature-x"
+assert-output-contains arg-optional "build="
+assert-output-contains arg-optional "config_file="
+
+assert-success arg-tag-precedence $TMP/args.zsh debug feature-x prod
+assert-output-contains arg-tag-precedence "tags=args zsh debug prod"
+assert-output-contains arg-tag-precedence "feature=feature-x"
+assert-output-contains arg-tag-precedence "build="
+
+assert-success arg-duplicate-values $TMP/args.zsh feature-x feature-x
+assert-output-contains arg-duplicate-values "feature=feature-x"
+assert-output-contains arg-duplicate-values "build=feature-x"
+
+assert-failure arg-extra "argument not accepted by config: too-much" $TMP/args.zsh one two three too-much
+assert-failure duplicate-arg "duplicate argument: value" $TMP/duplicate-arg.zsh value
+assert-failure arg-prop-collision "property collides with argument: target" $TMP/arg-prop-collision.zsh value
+assert-failure arg-group-collision "tag group collides with argument: env" $TMP/arg-group-collision.zsh value
 
 assert-success group-query $TMP/group-query.zsh prod
 assert-output-contains group-query "has_env=yes"
@@ -254,9 +309,9 @@ assert-output-contains ready "top=not-ready"
 assert-output-contains ready "configure=not-ready"
 assert-output-contains ready "main=ready"
 
-assert-success configure-sees-unknown $TMP/configure-unknown.zsh prod feature-x seen_unknown=yes
-assert-output-contains configure-sees-unknown "unknown=feature-x"
-assert-output-contains configure-sees-unknown "seen_unknown=yes"
+assert-success configure-sees-arg $TMP/dynamic-args.zsh prod feature-x feature_seen=yes
+assert-output-contains configure-sees-arg "feature=feature-x"
+assert-output-contains configure-sees-arg "feature_seen=yes"
 
 assert-success dynamic-default-entrypoints $TMP/dynamic-default-entrypoints.zsh prod branch=main
 assert-output-contains dynamic-default-entrypoints "dynamic-default branch=main"
@@ -312,6 +367,13 @@ else
   record-fail completion-pattern-value-empty "got: $completion_pattern_value"
 fi
 
+completion_path_marker=$(zsh $ZR --_zr-complete $TMP/args.zsh --current '' prod feature-x build-17)
+if [[ $completion_path_marker == *__ZR_COMPLETE_FILES__* && $completion_path_marker == *debug* && $completion_path_marker == *region=* ]]; then
+  record-pass completion-path-marker
+else
+  record-fail completion-path-marker "got: $completion_path_marker"
+fi
+
 completion_script=$TMP/completion.zsh
 completion_driver=$TMP/completion-driver.zsh
 zsh $ZR --completion >$completion_script
@@ -321,9 +383,17 @@ compadd() {
   local arrname=${argv[-1]}
   print -rl -- "${(@P)arrname}"
 }
+_files() {
+  print -r -- "_files_called"
+}
 source "$1"
-words=(zr "$2" "money\\\$tag" "")
-CURRENT=4
+if (( $# > 2 )); then
+  words=(zr "$2" "${@:3}")
+  CURRENT=${#words}
+else
+  words=(zr "$2" "money\\\$tag" "")
+  CURRENT=4
+fi
 _zr
 DRIVER
 completion_dollar=$(zsh $completion_driver $completion_script $TMP/dollar-tag.zsh)
@@ -331,6 +401,13 @@ if [[ $completion_dollar == plain ]]; then
   record-pass completion-dollar-selected
 else
   record-fail completion-dollar-selected "got: $completion_dollar"
+fi
+
+completion_path_driver=$(zsh $completion_driver $completion_script $TMP/args.zsh prod feature-x build-17 '')
+if [[ $completion_path_driver == *_files_called* ]]; then
+  record-pass completion-path-files
+else
+  record-fail completion-path-files "got: $completion_path_driver"
 fi
 
 DIRECT_BIN=$TMP/direct-bin

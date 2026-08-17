@@ -5,9 +5,9 @@
 `zr` is a zsh configuration-script runner.
 
 A `zr` config is a single trusted zsh file. The config receives a set of tags,
-a set of named properties, and an optional argument vector. It may describe its
-accepted tags and properties through `configure()`, and performs its work through
-`main()`.
+a set of named properties, named positional arguments, and an optional main
+argument vector. It may describe its accepted tags, properties, and positional
+arguments through `configure()`, and performs its work through `main()`.
 
 `zr` does not interpret the arguments passed to `main()`, and it does not build a
 secondary command language. Config files are executable zsh programs: they may
@@ -29,20 +29,25 @@ it uses `zr` as its shebang interpreter.
 
 **Tag**
 : A string label describing an active invocation context, such as `prod` or
-  `shard1`. Tags may come from the invocation filename or from command-line
-  arguments before `--` that are not property assignments. Tag strings are not
-  required to be valid shell parameter names.
+  `shard1`. Tags may come from the invocation filename or from declared
+  command-line arguments before `--` that are not property assignments. Tag
+  strings are not required to be valid shell parameter names.
 
 **Property**
 : A named string value supplied as `NAME=value` before `--`.
+
+**Arg**
+: A named positional value captured from a bare command-line token before `--`
+  that is not a declared tag. Path args are args whose completion behavior uses
+  filesystem path completion.
 
 **Main argument**
 : An argument after `--`. Main arguments are not interpreted by `zr` and are
   passed to `main()` verbatim.
 
 **Schema**
-: The tags, tag groups, properties, and property values declared by
-  `configure()` for the current invocation context.
+: The tags, tag groups, properties, property values, args, and path args
+  declared by `configure()` for the current invocation context.
 
 ## Invocation Forms
 
@@ -75,7 +80,7 @@ actual config file:
 Both invocation forms are normalized to the same internal model:
 
 ```text
-config + tags + properties + main arguments
+config + tags + properties + args + main arguments
 ```
 
 After normalization, execution semantics are identical.
@@ -86,23 +91,24 @@ Before `--`, every argument after the config is consumed by `zr` and is parsed
 as one of these forms:
 
 ```text
-TAG
+BARE
 NAME=value
 ```
 
-`TAG` supplies a tag. A tag argument is any token before `--` that is not a
-property assignment. The tag value is the token itself, unchanged. Tags are not
-required to be valid zsh parameter names and may be arbitrary strings, subject
-only to the parsing rule below. A leading `+` has no special meaning; `+prod` is
-the literal tag string `+prod`.
+A bare argument is any token before `--` that is not a property assignment. Its
+value is the token itself, unchanged. During schema evaluation, a bare token is
+classified as a declared tag when it exactly matches `zr::tag` or a member of
+`zr::tag-group`; otherwise it is captured by the next unfilled `zr::arg` or
+`zr::path-arg` slot in declaration order. A leading `+` has no special meaning;
+`+prod` is the literal string `+prod`.
 
 `NAME=value` supplies a property when `NAME` is a valid zsh parameter name
 matching `[A-Za-z_][A-Za-z0-9_]*`. The value is everything after the first `=`;
 it may be empty and may contain additional `=` characters. A token containing
-`=` whose prefix is not a valid property name is a tag, not a malformed
+`=` whose prefix is not a valid property name is a bare token, not a malformed
 property.
 
-Tags and properties may be intermingled before `--`; each token is parsed
+Bare tokens and properties may be intermingled before `--`; each token is parsed
 independently.
 
 The optional `--` token terminates `zr` arguments. Every subsequent token is
@@ -177,17 +183,17 @@ service.prod.shard1 endpoint=/foo
 adds the filename tags `service`, `prod`, and `shard1`, while the sourced config
 is the physical target `~/configs/service`.
 
-### CLI Tags
+### Bare CLI Tokens
 
 A command-line token before `--` that is not a `NAME=value` property assignment
-adds that exact token as a tag:
+adds that exact token to the bare CLI token stream:
 
 ```sh
 zr ./service prod shard1
 ```
 
-There is no required tag prefix. For example, `prod`, `+prod`, `feature/foo`,
-`x=y`, and `123` are all valid tag strings except that a token such as
+There is no required prefix. For example, `prod`, `+prod`, `feature/foo`,
+`x=y`, and `123` are all valid bare strings except that a token such as
 `region=us-west`, whose prefix is a valid parameter name, is parsed as a
 property instead.
 
@@ -199,8 +205,10 @@ filename-derived tags appear first in left-to-right filename order, followed by
 CLI tags in command-line order. A duplicate occurrence does not add a second
 array element or change the first occurrence's position.
 
-`ZR_CLI_TAGS` contains only CLI tag tokens, in command-line order. Unlike
-`ZR_TAGS`, it preserves duplicate CLI tag occurrences.
+`ZR_CLI_TAGS` contains the raw bare CLI tokens before `--`, in command-line
+order. Unlike `ZR_TAGS`, it preserves duplicate occurrences. Depending on the
+current schema, a token in this stream may become a declared tag or a captured
+arg.
 
 ### `ZR_TAGS`
 
@@ -212,14 +220,14 @@ ZR_TAGS=(service prod shard1)
 ```
 
 Configs should treat `ZR_TAGS` as the canonical effective representation of
-invocation tags. `ZR_CLI_TAGS` is available when the exact CLI tag stream is
-needed.
+invocation tags. `ZR_CLI_TAGS` is available when the exact bare CLI token stream
+is needed.
 
 `ZR_KNOWN_TAGS` contains filename-derived tags and declared CLI tags, with
-duplicates removed. `ZR_UNKNOWN_TAGS` contains undeclared CLI tag occurrences
-accepted by `zr::allow-unknown-tags`, in CLI order with duplicates preserved.
-Because known and unknown classification depends on the current schema, these
-arrays are refreshed as `configure()` declares tags and when validation runs.
+duplicates removed. `ZR_ARGS` contains captured `zr::arg` and `zr::path-arg`
+values as a zsh associative array. Because tag and arg classification depends
+on the current schema, these arrays are refreshed as `configure()` declares
+tags and args and when validation runs.
 
 `Tag` is the specification term for these invocation-context labels.
 
@@ -379,19 +387,35 @@ zr::tag canary
 Tag names are arbitrary strings. They are matched exactly against `ZR_TAGS` and
 are not interpreted as shell parameter names.
 
-### Allowing Unknown CLI Tags
+### Declaring Args
 
-A config may accept undeclared CLI tags with:
+A named positional arg is declared with:
 
 ```zsh
-zr::allow-unknown-tags
+zr::arg NAME
+zr::path-arg NAME
 ```
 
-When this method is called during `configure()`, CLI tags not declared through
-`zr::tag` or `zr::tag-group` are accepted and recorded in `ZR_UNKNOWN_TAGS`.
-When it is not called, undeclared CLI tags remain validation errors.
+Bare CLI tokens that do not match declared tags are captured into declared arg
+slots in declaration order. `zr::arg` accepts any string and does not add custom
+completion candidates. `zr::path-arg` accepts any string and asks zsh completion
+to provide filesystem path candidates when that slot is next.
 
-Filename-derived tags are accepted automatically regardless of this setting.
+For example:
+
+```zsh
+zr::arg branch
+zr::path-arg config_file
+```
+
+with `feature-x ./config.yml` captures `feature-x` as `branch` and
+`./config.yml` as `config_file`. Declared args are optional; an unsupplied arg
+is absent from `ZR_ARGS`.
+
+Arg names must be valid zsh parameter names. Arg names must be unique and must
+not collide with declared property names or tag-group names. Arg names may
+collide with literal tag strings because tag strings are arbitrary values, not
+retrieval identifiers.
 
 ### Declaring Tag Groups
 
@@ -421,7 +445,7 @@ an active tag that fits `GROUP`; it returns failure when no member of the group
 is active.
 
 Group names must be valid zsh parameter names. Group names must be unique and
-must not collide with declared property names.
+must not collide with declared property names or arg names.
 
 ### Declaring Properties
 
@@ -440,7 +464,7 @@ zr::prop region
 
 Property names must be valid zsh parameter names.
 
-A property name must not collide with a tag-group name.
+A property name must not collide with a tag-group name or arg name.
 
 ### Declaring Property Values
 
@@ -492,13 +516,14 @@ do not suggest arbitrary values.
 
 ### Querying Current Invocation State
 
-Configs may query the current parsed invocation through `ZR_TAGS` and
-`ZR_PROPS` directly. Convenience APIs are also provided:
+Configs may query the current parsed invocation through `ZR_TAGS`, `ZR_PROPS`,
+and `ZR_ARGS` directly. Convenience APIs are also provided:
 
 ```zsh
 zr::has-tag TAG
 zr::has-prop NAME
 zr::get NAME
+zr::get-arg NAME
 zr::ready
 ```
 
@@ -510,6 +535,9 @@ its value is empty.
 `zr::get NAME` writes the property's value to stdout. A missing property is
 distinct from an explicitly supplied empty value and should produce a non-zero
 status.
+
+`zr::get-arg NAME` writes the captured arg value to stdout. A missing or
+unsupplied arg produces a non-zero status.
 
 `zr::ready` succeeds after the config has been sourced, any configured
 configure entrypoint has run, validation has passed, and the main entrypoint is
@@ -548,10 +576,11 @@ language.
 The declarations produced by the current call to `configure()` are
 authoritative for that invocation state. Declaration state starts fresh for each
 `configure()` call: declarations are additive within a single call, but are not
-accumulated across calls. A CLI tag or property that is not declared by the
-resulting interface is invalid when `configure()` is present. Filename-derived
-tags are accepted automatically, though they may still match declared tag-group
-members.
+accumulated across calls. A bare CLI token that is neither a declared tag nor
+captured by a declared arg slot is invalid when `configure()` is present. A
+property that is not declared by the resulting interface is also invalid.
+Filename-derived tags are accepted automatically, though they may still match
+declared tag-group members.
 
 This same rule makes completion naturally context-sensitive: only interface
 elements declared for the command line as currently typed are candidates.
@@ -563,15 +592,16 @@ returns.
 
 Validation includes at least:
 
-- every active CLI tag is declared by `zr::tag` or `zr::tag-group`, unless
-  `zr::allow-unknown-tags` was called;
+- every bare CLI token is either declared by `zr::tag` or `zr::tag-group`, or
+  captured by a declared `zr::arg` or `zr::path-arg` slot;
 - every supplied property is declared by `zr::prop`;
 - at most one active tag belongs to each tag group;
 - supplied property values satisfy any `zr::values`, `zr::pattern`, or
   `zr::validate` declaration;
 - property names are unique in the invocation;
 - tag-group names are unique;
-- a property name does not collide with a tag-group name.
+- arg names are unique;
+- property names, tag-group names, and arg names do not collide with each other.
 
 Filename-derived tags are accepted automatically and do not need declaration.
 When a filename-derived tag is also a member of a declared tag group, it still
@@ -657,8 +687,8 @@ represented as parameter names.
 As with `zr::props-to-env`, these are ordinary shell parameters and are not
 exported automatically.
 
-Because group names become parameter names, collisions between tag-group names
-and property names are configuration errors.
+Because group names become parameter names, collisions between tag-group names,
+property names, and arg names are configuration errors.
 
 ## Completion Model
 
@@ -761,14 +791,18 @@ At minimum:
 - when one member of a tag group is active, the other members of that group are
   not suggested;
 - an already-supplied property is not suggested again;
-- only tags and properties declared by the current `configure()` evaluation are
-  suggested;
+- only tags, properties, and path-arg completion behavior declared by the
+  current `configure()` evaluation are suggested;
 - when completing a property name prefix such as `reg`, declared properties are
   suggested as `NAME=` candidates, such as `region=`;
 - when completing `NAME=...`, values declared through `zr::values` are
   suggested as `NAME=value` candidates;
 - properties declared through `zr::pattern` or `zr::validate` complete as
   `NAME=` only and do not suggest arbitrary values;
+- when the next unfilled arg slot is declared with `zr::path-arg`, filesystem
+  path completion is offered in addition to valid tag and property candidates;
+- when the next unfilled arg slot is declared with `zr::arg`, no custom arg
+  value candidates are suggested;
 - context-sensitive declarations are reevaluated against the committed command
   line as currently typed.
 
@@ -786,12 +820,13 @@ A complete config may look like:
 #!/usr/bin/env zr
 
 configure() {
-  zr::allow-unknown-tags
-
   zr::tag-group env prod dev staging
   zr::tag-group shard shard1 shard2
 
   zr::tag debug
+
+  zr::arg branch
+  zr::path-arg payload_file
 
   zr::prop endpoint
   zr::prop region
@@ -812,6 +847,8 @@ main() {
 
   print -r -- "tags: ${ZR_TAGS[*]}"
   print -r -- "endpoint: ${ZR_PROPS[endpoint]-}"
+  print -r -- "branch: $(zr::get-arg branch)"
+  print -r -- "payload_file: $(zr::get-arg payload_file)"
   print -r -- "main argv: $*"
 }
 ```

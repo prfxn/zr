@@ -37,7 +37,8 @@ curl_order::valid-trace-id() {
 
 configure() {
   # The filename tag `curl-order-service` is accepted automatically.
-  zr::allow-unknown-tags
+  zr::arg request_id
+  zr::path-arg payload_file
 
   zr::tag-group env dev staging prod
   zr::tag-group endpoint "${CURL_ORDER_ENDPOINT_TAGS[@]}"
@@ -80,9 +81,10 @@ main() {
 
   print -r -- ""
   print -r -- "all tags: ${ZR_TAGS[*]:-none}"
-  print -r -- "cli tags: ${ZR_CLI_TAGS[*]:-none}"
+  print -r -- "bare cli tokens: ${ZR_CLI_TAGS[*]:-none}"
   print -r -- "known tags: ${ZR_KNOWN_TAGS[*]:-none}"
-  print -r -- "unknown tags: ${ZR_UNKNOWN_TAGS[*]:-none}"
+  print -r -- "request id: $(zr::get-arg request_id || print -r -- none)"
+  print -r -- "payload file: $(zr::get-arg payload_file || print -r -- none)"
 
   print -r -- ""
   print -r -- "properties:"

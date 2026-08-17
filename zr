@@ -62,23 +62,26 @@ zr::init-state() {
   typeset -ga ZR_FILENAME_TAGS
   typeset -ga ZR_CLI_TAGS
   typeset -ga ZR_KNOWN_TAGS
-  typeset -ga ZR_UNKNOWN_TAGS
   typeset -gA ZR_PROPS
+  typeset -gA ZR_ARGS
+  typeset -ga _ZR_REJECTED_ARGS
   typeset -gi _ZR_READY
   ZR_TAGS=()
   ZR_FILENAME_TAGS=()
   ZR_CLI_TAGS=()
   ZR_KNOWN_TAGS=()
-  ZR_UNKNOWN_TAGS=()
   ZR_PROPS=()
+  ZR_ARGS=()
+  _ZR_REJECTED_ARGS=()
   _ZR_READY=0
 
-  typeset -gi ZR_SCHEMA_ALLOW_UNKNOWN_TAGS
   typeset -gA ZR_SCHEMA_TAGS
   typeset -gA ZR_SCHEMA_PROPS
   typeset -gA ZR_SCHEMA_PROP_MODES
   typeset -gA ZR_SCHEMA_PROP_PATTERNS
   typeset -gA ZR_SCHEMA_PROP_VALIDATORS
+  typeset -ga ZR_SCHEMA_ARGS
+  typeset -gA ZR_SCHEMA_ARG_KINDS
   typeset -ga ZR_SCHEMA_GROUPS
   typeset -ga ZR_SCHEMA_GROUP_TAG_GROUPS
   typeset -ga ZR_SCHEMA_GROUP_TAG_VALUES
@@ -89,12 +92,13 @@ zr::init-state() {
 }
 
 zr::reset-schema() {
-  ZR_SCHEMA_ALLOW_UNKNOWN_TAGS=0
   ZR_SCHEMA_TAGS=()
   ZR_SCHEMA_PROPS=()
   ZR_SCHEMA_PROP_MODES=()
   ZR_SCHEMA_PROP_PATTERNS=()
   ZR_SCHEMA_PROP_VALIDATORS=()
+  ZR_SCHEMA_ARGS=()
+  ZR_SCHEMA_ARG_KINDS=()
   ZR_SCHEMA_GROUPS=()
   ZR_SCHEMA_GROUP_TAG_GROUPS=()
   ZR_SCHEMA_GROUP_TAG_VALUES=()
@@ -126,15 +130,18 @@ zr::get() {
   return 1
 }
 
+zr::get-arg() {
+  local name=${1-}
+  if (( ${+ZR_ARGS[$name]} )); then
+    print -r -- "${ZR_ARGS[$name]}"
+    return 0
+  fi
+  return 1
+}
+
 zr::tag() {
   (( $# == 1 )) || { print -ru2 -- "zr: zr::tag requires one argument"; return 1; }
   ZR_SCHEMA_TAGS[$1]=1
-  zr::classify-tags
-}
-
-zr::allow-unknown-tags() {
-  (( $# == 0 )) || { print -ru2 -- "zr: zr::allow-unknown-tags takes no arguments"; return 1; }
-  ZR_SCHEMA_ALLOW_UNKNOWN_TAGS=1
   zr::classify-tags
 }
 
@@ -146,6 +153,7 @@ zr::tag-group() {
   (( $# > 0 )) || { print -ru2 -- "zr: tag group '$group' has no tags"; return 1; }
   (( ${ZR_SCHEMA_GROUPS[(Ie)$group]} == 0 )) || { print -ru2 -- "zr: duplicate tag group: $group"; return 1; }
   (( ! ${+ZR_SCHEMA_PROPS[$group]} )) || { print -ru2 -- "zr: tag group collides with property: $group"; return 1; }
+  (( ${ZR_SCHEMA_ARGS[(Ie)$group]} == 0 )) || { print -ru2 -- "zr: tag group collides with argument: $group"; return 1; }
 
   ZR_SCHEMA_GROUPS+=("$group")
 
@@ -163,7 +171,31 @@ zr::prop() {
   (( $# == 1 )) || { print -ru2 -- "zr: zr::prop requires one argument"; return 1; }
   zr::valid-name "$name" || { print -ru2 -- "zr: invalid property name: $name"; return 1; }
   (( ${ZR_SCHEMA_GROUPS[(Ie)$name]} == 0 )) || { print -ru2 -- "zr: property collides with tag group: $name"; return 1; }
+  (( ${ZR_SCHEMA_ARGS[(Ie)$name]} == 0 )) || { print -ru2 -- "zr: property collides with argument: $name"; return 1; }
   ZR_SCHEMA_PROPS[$name]=1
+}
+
+zr::declare-arg() {
+  local api=$1 kind=$2 name=$3
+  (( $# == 3 )) || { print -ru2 -- "zr: zr::$api requires one argument"; return 1; }
+  zr::valid-name "$name" || { print -ru2 -- "zr: invalid argument name: $name"; return 1; }
+  (( ${ZR_SCHEMA_ARGS[(Ie)$name]} == 0 )) || { print -ru2 -- "zr: duplicate argument: $name"; return 1; }
+  (( ! ${+ZR_SCHEMA_PROPS[$name]} )) || { print -ru2 -- "zr: argument collides with property: $name"; return 1; }
+  (( ${ZR_SCHEMA_GROUPS[(Ie)$name]} == 0 )) || { print -ru2 -- "zr: argument collides with tag group: $name"; return 1; }
+
+  ZR_SCHEMA_ARGS+=("$name")
+  ZR_SCHEMA_ARG_KINDS[$name]=$kind
+  zr::classify-tags
+}
+
+zr::arg() {
+  (( $# == 1 )) || { print -ru2 -- "zr: zr::arg requires one argument"; return 1; }
+  zr::declare-arg arg arg "$1"
+}
+
+zr::path-arg() {
+  (( $# == 1 )) || { print -ru2 -- "zr: zr::path-arg requires one argument"; return 1; }
+  zr::declare-arg path-arg path "$1"
 }
 
 zr::set-prop-mode() {
@@ -269,17 +301,26 @@ zr::add-known-tag() {
 }
 
 zr::classify-tags() {
-  local tag
+  local tag arg_index arg_name
+  ZR_TAGS=()
   ZR_KNOWN_TAGS=()
-  ZR_UNKNOWN_TAGS=()
+  ZR_ARGS=()
+  _ZR_REJECTED_ARGS=()
   for tag in "${ZR_FILENAME_TAGS[@]}"; do
+    zr::add-tag "$tag"
     zr::add-known-tag "$tag"
   done
+  arg_index=1
   for tag in "${ZR_CLI_TAGS[@]}"; do
     if (( ${+ZR_SCHEMA_TAGS[$tag]} )); then
+      zr::add-tag "$tag"
       zr::add-known-tag "$tag"
-    elif (( ZR_SCHEMA_ALLOW_UNKNOWN_TAGS )); then
-      ZR_UNKNOWN_TAGS+=("$tag")
+    elif (( arg_index <= ${#ZR_SCHEMA_ARGS[@]} )); then
+      arg_name=${ZR_SCHEMA_ARGS[$arg_index]}
+      ZR_ARGS[$arg_name]=$tag
+      (( arg_index++ ))
+    else
+      _ZR_REJECTED_ARGS+=("$tag")
     fi
   done
 }
@@ -293,7 +334,6 @@ zr::filename-tags() {
   local part
   for part in "${parts[@]}"; do
     if [[ -n $part ]]; then
-      zr::add-tag "$part"
       (( ${ZR_FILENAME_TAGS[(Ie)$part]} == 0 )) && ZR_FILENAME_TAGS+=("$part")
       zr::classify-tags
     fi
@@ -354,8 +394,8 @@ zr::validate-state() {
   local tag name group active value mode validator
 
   zr::classify-tags
-  for tag in "${ZR_CLI_TAGS[@]}"; do
-    (( ${+ZR_SCHEMA_TAGS[$tag]} || ZR_SCHEMA_ALLOW_UNKNOWN_TAGS )) || zr::die "tag not accepted by config: $tag"
+  for tag in "${_ZR_REJECTED_ARGS[@]}"; do
+    zr::die "argument not accepted by config: $tag"
   done
 
   for name in "${(@k)ZR_PROPS}"; do
@@ -399,6 +439,14 @@ zr::resolve-config() {
   else
     command -v -- "$config_name" 2>/dev/null || print -r -- "$config_name"
   fi
+}
+
+zr::next-arg-kind() {
+  local next=$(( ${#ZR_ARGS[@]} + 1 ))
+  local name
+  (( next <= ${#ZR_SCHEMA_ARGS[@]} )) || return 1
+  name=${ZR_SCHEMA_ARGS[$next]}
+  print -r -- "${ZR_SCHEMA_ARG_KINDS[$name]}"
 }
 
 zr::tag-blocked-by-active-group() {
@@ -472,6 +520,10 @@ zr::complete() {
     (( ${+ZR_PROPS[$prop]} )) && continue
     [[ $prop == "$current"* ]] && print -r -- "${prop}="
   done
+
+  if [[ $(zr::next-arg-kind 2>/dev/null) == path ]]; then
+    print -r -- "__ZR_COMPLETE_FILES__"
+  fi
 }
 
 zr::print-completion() {
@@ -505,8 +557,12 @@ _zr() {
 
   (( ${#candidates[@]} )) || return
 
-  local candidate
+  local candidate complete_files=0
   for candidate in "${candidates[@]}"; do
+    if [[ $candidate == __ZR_COMPLETE_FILES__ ]]; then
+      complete_files=1
+      continue
+    fi
     if [[ $candidate == *= ]]; then
       nospace+=("$candidate")
     else
@@ -517,6 +573,7 @@ _zr() {
   local added=1
   (( ${#nospace[@]} )) && compadd -S "" -a nospace && added=0
   (( ${#spaced[@]} )) && compadd -a spaced && added=0
+  (( complete_files )) && _files && added=0
   (( added == 0 )) && _compskip=all
   return $added
 }
