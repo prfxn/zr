@@ -249,6 +249,10 @@ so irreversible work should live in `main()` rather than at top level or in
 
 ## Specification
 
-The README is intentionally introductory. The detailed grammar, lifecycle,
-validation rules, completion model, errors, and currently unspecified behavior
-are defined in [SPEC.md](./SPEC.md).
+The detailed grammar, lifecycle, validation rules, completion model, errors, 
+and currently unspecified behavior are defined in [SPEC.md](./SPEC.md).
+
+
+## License
+
+Licensed under the [MIT License](./LICENSE).
