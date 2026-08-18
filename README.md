@@ -34,6 +34,52 @@ entrypoint functions.
 The config remains ordinary zsh. `zr` supplies a lightweight convention for
 parsing invocation context, validating it, and completing it.
 
+## Installation
+
+Install `zr` somewhere on your `PATH`:
+
+```sh
+mkdir -p ~/.local/bin
+install -m 0755 zr ~/.local/bin/zr
+```
+
+Install the zsh completion function somewhere on `fpath`:
+
+```sh
+mkdir -p ~/.local/share/zsh/site-functions
+~/.local/bin/zr --completion > ~/.local/share/zsh/site-functions/_zr
+```
+
+Then load completions from your zsh startup file:
+
+```zsh
+fpath=(~/.local/share/zsh/site-functions $fpath)
+autoload -Uz compinit
+compinit
+```
+
+Generate `_zr` from the installed `zr` path. The generated completion records
+the runner path, so generating it from a checkout and then installing `zr`
+elsewhere may leave completion pointing at the checkout copy.
+
+This enables completion for explicit invocations:
+
+```sh
+zr ./curl-my-service prod shard1
+```
+
+Executable configs that use a `zr` shebang need their command names registered
+with zsh completion too:
+
+```zsh
+compdef _zr curl-my-service
+compdef _zr -p '*/curl-my-service(|.*)'
+```
+
+The first form registers a command on `PATH`. The `-p` form registers a pattern
+for direct path invocations and tagged symlink names such as
+`curl-my-service.prod` or `curl-my-service.prod.shard1`.
+
 ## Invocation
 
 Run a config explicitly:
