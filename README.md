@@ -47,7 +47,7 @@ Install the zsh completion function somewhere on `fpath`:
 
 ```sh
 mkdir -p ~/.local/share/zsh/site-functions
-~/.local/bin/zr --completion > ~/.local/share/zsh/site-functions/_zr
+~/.local/bin/zr --completion-autoload > ~/.local/share/zsh/site-functions/_zr
 ```
 
 Then load completions from your zsh startup file:
@@ -235,8 +235,9 @@ values to child processes.
 `zr` is designed so the same `configure()` declarations power validation and
 zsh completion.
 
-`zr --completion` prints the `_zr` completion function, so it can be loaded
-from your zsh startup files or saved anywhere on `fpath`.
+`zr --completion` prints and registers the `_zr` completion function for the
+current shell. `zr --completion-autoload` prints the autoloadable `_zr`
+completion function, so it can be saved anywhere on `fpath`.
 
 For explicit invocations of the form `zr path/to/config ...`, load the
 completion function and ensure `zr` itself is registered:
@@ -245,7 +246,7 @@ completion function and ensure `zr` itself is registered:
 autoload -Uz compinit
 compinit
 
-eval "$(zr --completion)"
+. <(zr --completion)
 ```
 
 After that, `_zr` completes:

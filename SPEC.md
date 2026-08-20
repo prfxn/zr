@@ -707,8 +707,10 @@ candidates.
 
 ### Completion for `zr CONFIG ...`
 
-A normal zsh completion function, conventionally `_zr`, is registered for
-`zr`:
+`zr --completion` prints `_zr` and registers it for `zr` in the current
+shell. `zr --completion-autoload` prints an autoloadable completion file for
+writing to `fpath`; in that form, zsh uses the file-level `#compdef` line to
+associate `_zr` with `zr`:
 
 ```zsh
 #compdef zr

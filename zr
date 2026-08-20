@@ -527,6 +527,7 @@ zr::complete() {
 }
 
 zr::print-completion() {
+  local mode=${1:-source}
   local runner=$ZR_SCRIPT
   print -r -- "#compdef zr"
   print -r -- "typeset -g _zr_runner=${(qqq)runner}"
@@ -577,16 +578,19 @@ _zr() {
   (( added == 0 )) && _compskip=all
   return $added
 }
-
-compdef _zr zr
 ZR_COMPLETION
 
+  [[ $mode == source ]] && print -r -- "compdef _zr zr"
 }
 
 zr::_main() {
   case ${1-} in
     --completion)
       zr::print-completion
+      return 0
+      ;;
+    --completion-autoload)
+      zr::print-completion autoload
       return 0
       ;;
     --_zr-complete)
