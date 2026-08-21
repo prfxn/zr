@@ -708,9 +708,10 @@ candidates.
 ### Completion for `zr CONFIG ...`
 
 `zr --completion` prints `_zr` and registers it for `zr` in the current
-shell. `zr --completion-autoload` prints an autoloadable completion file for
-writing to `fpath`; in that form, zsh uses the file-level `#compdef` line to
-associate `_zr` with `zr`:
+shell using `compdef _zr zr`. `zr --completion-autoload` prints an
+autoloadable completion file for writing to `fpath`; in that form, zsh uses
+the file-level `#compdef` line to associate `_zr` with `zr`. The autoloadable
+file has no top-level initialization besides `#compdef`:
 
 ```zsh
 #compdef zr

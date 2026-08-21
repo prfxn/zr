@@ -529,12 +529,14 @@ zr::complete() {
 zr::print-completion() {
   local mode=${1:-source}
   local runner=$ZR_SCRIPT
-  print -r -- "#compdef zr"
-  print -r -- "typeset -g _zr_runner=${(qqq)runner}"
+  if [[ $mode == autoload ]]; then
+    print -r -- "#compdef zr"
+    print -r -- ""
+  fi
+  print -r -- "_zr() {"
+  print -r -- "  local config start current script"
+  print -r -- "  local runner=${(qqq)runner}"
   cat <<'ZR_COMPLETION'
-
-_zr() {
-  local config start current script
 
   if [[ ${words[1]:t} == zr ]]; then
     if (( CURRENT == 2 )); then
@@ -550,7 +552,7 @@ _zr() {
 
   [[ -n $config ]] || return
   current=${(Q)words[CURRENT]}
-  script=${_zr_runner:-${commands[zr]:-zr}}
+  script=${_zr_runner:-$runner}
 
   local -a committed candidates spaced nospace
   committed=("${(@Q)words[$start,$(( CURRENT - 1 ))]}")

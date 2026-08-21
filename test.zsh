@@ -378,16 +378,16 @@ completion_script=$TMP/completion.zsh
 completion_driver=$TMP/completion-driver.zsh
 zsh $ZR --completion >$completion_script
 completion_source_body=$(<$completion_script)
-if [[ $completion_source_body == *"compdef _zr zr"* ]]; then
+if [[ $completion_source_body == *"compdef _zr zr"* && $completion_source_body != *"#compdef zr"* && $completion_source_body != *"typeset -g _zr_runner"* ]]; then
   record-pass completion-source-registers-zr
 else
-  record-fail completion-source-registers-zr "missing compdef _zr zr"
+  record-fail completion-source-registers-zr "got: $completion_source_body"
 fi
 
 completion_autoload_script=$TMP/completion-autoload.zsh
 zsh $ZR --completion-autoload >$completion_autoload_script
 completion_autoload_body=$(<$completion_autoload_script)
-if [[ $completion_autoload_body == *"_zr()"* && $completion_autoload_body != *"compdef _zr zr"* ]]; then
+if [[ $completion_autoload_body == *"#compdef zr"* && $completion_autoload_body == *"_zr()"* && $completion_autoload_body != *"compdef _zr zr"* && $completion_autoload_body != *"typeset -g _zr_runner"* ]]; then
   record-pass completion-autoload-no-register
 else
   record-fail completion-autoload-no-register "got: $completion_autoload_body"
