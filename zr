@@ -824,6 +824,17 @@ zr::_main() {
   local config_lexical=$1
   shift
 
+  case ${1-} in
+    --completion)
+      zr::print-completion source "${config_lexical:t}" external
+      return 0
+      ;;
+    --completion-autoload)
+      zr::print-completion autoload "${config_lexical:t}" external
+      return 0
+      ;;
+  esac
+
   zr::filename-tags "$config_lexical"
   zr::parse-args "$@"
 

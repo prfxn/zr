@@ -62,6 +62,8 @@ The direct executable form is:
 
 ```text
 CONFIG_COMMAND [ZR_ARG...] [-- MAIN_ARG...]
+CONFIG_COMMAND --completion
+CONFIG_COMMAND --completion-autoload
 ```
 
 where `CONFIG_COMMAND` is an executable config whose shebang invokes `zr`, for
@@ -772,9 +774,9 @@ active partial word being completed is not committed into `ZR_TAGS` or
 `ZR_PROPS` before `configure()` runs; it is used by `_zr` as the completion
 prefix or property-value context.
 
-Embedded scripts expose the same user-facing completion options. For a command
-named `my-script`, `my-script --completion` prints an immediate current-shell
-setup form:
+Embedded scripts and direct executable configs expose per-command completion
+installation options. For a command named `my-script`,
+`my-script --completion` prints an immediate current-shell setup form:
 
 ```zsh
 _my-script() {
@@ -799,14 +801,45 @@ _my-script "$@"
 ```
 
 The embedded completion function executes the script itself with
-`--_zr-complete`, while external `_zr` executes the installed `zr` runner with
-the target config path. Both paths use the same completion candidate logic after
-the config has been loaded.
+`--_zr-complete`, while direct executable config completions execute the
+installed `zr` runner with the target config path. Both paths use the same
+completion candidate logic after the config has been loaded.
 
 ### Completion for Direct Config Commands
 
 Zsh does not infer completion behavior from a command's shebang. Direct config
-commands must therefore be explicitly associated with `_zr`.
+commands must therefore be explicitly associated with a completion function.
+
+`CONFIG_COMMAND --completion` prints a function whose name is derived from the
+command basename and registers it for both the command name and direct-path
+pattern invocations:
+
+```zsh
+_my-service() {
+  ...
+}
+
+compdef _my-service my-service
+compdef _my-service -p '*/my-service(|.*)'
+```
+
+`CONFIG_COMMAND --completion-autoload` prints the file form intended for
+`fpath`:
+
+```zsh
+#compdef my-service
+
+_my-service() {
+  ...
+}
+
+compdef _my-service -p '*/my-service(|.*)'
+_my-service "$@"
+```
+
+For direct executable configs, `--completion` and `--completion-autoload` are
+reserved when they are the first argument after the config command. They are
+not advertised as ordinary config completion candidates.
 
 A stable command symlink on `PATH` is the recommended form:
 

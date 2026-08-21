@@ -72,13 +72,20 @@ Executable configs that use a `zr` shebang need their command names registered
 with zsh completion too:
 
 ```zsh
-compdef _zr curl-my-service
-compdef _zr -p '*/curl-my-service(|.*)'
+eval "$(curl-my-service --completion)"
 ```
 
-The first form registers a command on `PATH`. The `-p` form registers a pattern
+The generated per-command completion registers the command name plus a pattern
 for direct path invocations and tagged symlink names such as
-`curl-my-service.prod` or `curl-my-service.prod.shard1`.
+`curl-my-service.prod` or `curl-my-service.prod.shard1`. For durable autoload
+installation:
+
+```sh
+curl-my-service --completion-autoload > ~/.local/share/zsh/site-functions/_curl-my-service
+```
+
+For shebang configs, `--completion` and `--completion-autoload` are reserved
+when they are the first argument after the config command.
 
 ## Invocation
 
@@ -291,13 +298,13 @@ zr path/to/config ...
 ```
 
 For direct path invocations of an executable config whose shebang invokes `zr`,
-register the config path with a pattern completion:
+the config can print its own per-command completion installer:
 
 ```zsh
-compdef _zr -p '*/curl-order-service'
+eval "$(./examples/curl-order-service --completion)"
 ```
 
-This supports commands such as:
+This registers completion for commands such as:
 
 ```zsh
 ./examples/curl-order-service ...
@@ -309,18 +316,18 @@ completions against both the typed command and its resolved command path,
 `*/curl-order-service` also matches PATH-style invocations when
 `curl-order-service` is executable on `PATH`.
 
-For direct PATH command names, you may also register the command explicitly:
+For durable autoload installation:
 
-```zsh
-compdef _zr curl-my-service
-compdef _zr curl-my-service.prod
+```sh
+curl-order-service --completion-autoload > ~/.local/share/zsh/site-functions/_curl-order-service
 ```
 
-Completion evaluates the config in a subshell so shell state does not leak back
-into the interactive shell.
+For shebang configs, `--completion` and `--completion-autoload` are reserved
+when they are the first argument after the config command. The generated
+function uses the installed `zr` runner and evaluates the config in a subshell
+so shell state does not leak back into the interactive shell.
 
-Embedded scripts provide the same two completion installation forms, but the
-generated function is per-script:
+Embedded scripts provide the same two completion installation forms:
 
 ```zsh
 eval "$(my-script --completion)"

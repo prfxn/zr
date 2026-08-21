@@ -550,6 +550,32 @@ else
   record-fail completion-direct-command-path "got: $completion_direct"
 fi
 
+direct_source_completion=$(env PATH="$DIRECT_BIN:$PATH" zsh $ZR basic.prod --completion)
+if [[ $direct_source_completion == *"_basic.prod()"* && $direct_source_completion == *"compdef _basic.prod basic.prod"* && $direct_source_completion == *"compdef _basic.prod -p '*/basic.prod(|.*)'"* && $direct_source_completion == *"--_zr-complete \"\$config\""* && $direct_source_completion != *"#compdef basic.prod"* ]]; then
+  record-pass direct-completion-source-form
+else
+  record-fail direct-completion-source-form "got: $direct_source_completion"
+fi
+print -r -- "$direct_source_completion" >$TMP/direct-completion-source.zsh
+if zsh -n $TMP/direct-completion-source.zsh; then
+  record-pass direct-completion-source-syntax
+else
+  record-fail direct-completion-source-syntax
+fi
+
+direct_autoload_completion=$(env PATH="$DIRECT_BIN:$PATH" zsh $ZR basic.prod --completion-autoload)
+if [[ $direct_autoload_completion == *"#compdef basic.prod"* && $direct_autoload_completion == *"_basic.prod()"* && $direct_autoload_completion == *"compdef _basic.prod -p '*/basic.prod(|.*)'"* && $direct_autoload_completion == *"_basic.prod \"\$@\""* && $direct_autoload_completion != *"compdef _basic.prod basic.prod"* ]]; then
+  record-pass direct-completion-autoload-form
+else
+  record-fail direct-completion-autoload-form "got: $direct_autoload_completion"
+fi
+print -r -- "$direct_autoload_completion" >$TMP/direct-completion-autoload.zsh
+if zsh -n $TMP/direct-completion-autoload.zsh; then
+  record-pass direct-completion-autoload-syntax
+else
+  record-fail direct-completion-autoload-syntax
+fi
+
 print -r -- ""
 print -r -- "$pass passed, $fail failed"
 (( fail == 0 ))
