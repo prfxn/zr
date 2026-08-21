@@ -226,6 +226,20 @@ run() {
 }
 CONFIG
 
+cat >$TMP/custom-entrypoints-vars.zsh <<'CONFIG'
+ZR_CONFIGURE=setup
+ZR_MAIN=run
+
+setup() {
+  zr::tag prod
+  zr::prop branch
+}
+
+run() {
+  print -r -- "vars custom branch=${ZR_PROPS[branch]-} argv=$*"
+}
+CONFIG
+
 cat >$TMP/missing-custom-main.zsh <<'CONFIG'
 zr::set-main run
 main() { :; }
@@ -322,6 +336,9 @@ assert-output-contains custom-entrypoints "custom branch=main argv=alpha beta"
 assert-success custom-entrypoints-direct $TMP/custom-entrypoints-direct.zsh prod branch=main
 assert-output-contains custom-entrypoints-direct "direct custom branch=main"
 
+assert-success custom-entrypoints-vars $TMP/custom-entrypoints-vars.zsh prod branch=main -- alpha beta
+assert-output-contains custom-entrypoints-vars "vars custom branch=main argv=alpha beta"
+
 assert-failure missing-custom-main "config does not define run()" $TMP/missing-custom-main.zsh
 assert-failure missing-custom-configure "config does not define setup()" $TMP/missing-custom-configure.zsh
 assert-failure reject-zr-main "invalid main function name: zr::run" $TMP/reject-zr-main.zsh
@@ -358,6 +375,13 @@ if [[ $completion_custom_name == branch= ]]; then
   record-pass completion-custom-name
 else
   record-fail completion-custom-name "got: $completion_custom_name"
+fi
+
+completion_custom_vars_name=$(zsh $ZR --_zr-complete $TMP/custom-entrypoints-vars.zsh --current br prod)
+if [[ $completion_custom_vars_name == branch= ]]; then
+  record-pass completion-custom-vars-name
+else
+  record-fail completion-custom-vars-name "got: $completion_custom_vars_name"
 fi
 
 completion_pattern_value=$(zsh $ZR --_zr-complete $TMP/basic.zsh --current branch= prod)
@@ -423,6 +447,87 @@ if [[ $completion_path_driver == *_files_called* ]]; then
   record-pass completion-path-files
 else
   record-fail completion-path-files "got: $completion_path_driver"
+fi
+
+cat >$TMP/embed-source.zsh <<'CONFIG'
+ZR_CONFIGURE=setup
+ZR_MAIN=run
+
+setup() {
+  zr::tag-group env prod dev
+  zr::prop region
+}
+
+run() {
+  print -r -- "embedded tags=${ZR_TAGS[*]}"
+  print -r -- "embedded region=${ZR_PROPS[region]-}"
+  print -r -- "embedded argv=$*"
+}
+CONFIG
+
+embedded_script=$TMP/my-script
+zsh $ZR --embed $TMP/embed-source.zsh >$embedded_script
+chmod +x $embedded_script
+
+if grep -Fq -- "# zr:embedded:begin version=" $embedded_script && grep -Fq -- "# zr:embedded:end" $embedded_script; then
+  record-pass embed-markers
+else
+  record-fail embed-markers "embedded script was: $(<$embedded_script)"
+fi
+
+stdout=$TMP/embedded-run.out
+stderr=$TMP/embedded-run.err
+if zsh $embedded_script prod region=us-west -- alpha beta >$stdout 2>$stderr; then
+  record-pass embedded-run
+else
+  record-fail embedded-run "$(<$stderr)"
+fi
+if grep -Fq -- "embedded tags=my-script prod" $stdout && grep -Fq -- "embedded region=us-west" $stdout && grep -Fq -- "embedded argv=alpha beta" $stdout; then
+  record-pass embedded-output
+else
+  record-fail embedded-output "stdout was: $(<$stdout)"
+fi
+
+embedded_completion=$(zsh $embedded_script --_zr-complete --_zr-lexical my-script --current r prod)
+if [[ $embedded_completion == region= ]]; then
+  record-pass embedded-completion
+else
+  record-fail embedded-completion "got: $embedded_completion"
+fi
+
+embedded_source_completion=$(zsh $embedded_script --completion)
+if [[ $embedded_source_completion == *"_my-script()"* && $embedded_source_completion == *"compdef _my-script my-script"* && $embedded_source_completion == *"compdef _my-script -p '*/my-script(|.*)'"* && $embedded_source_completion != *"#compdef my-script"* ]]; then
+  record-pass embedded-completion-source-form
+else
+  record-fail embedded-completion-source-form "got: $embedded_source_completion"
+fi
+print -r -- "$embedded_source_completion" >$TMP/embedded-completion-source.zsh
+if zsh -n $TMP/embedded-completion-source.zsh; then
+  record-pass embedded-completion-source-syntax
+else
+  record-fail embedded-completion-source-syntax
+fi
+
+embedded_autoload_completion=$(zsh $embedded_script --completion-autoload)
+if [[ $embedded_autoload_completion == *"#compdef my-script"* && $embedded_autoload_completion == *"_my-script()"* && $embedded_autoload_completion == *"compdef _my-script -p '*/my-script(|.*)'"* && $embedded_autoload_completion == *"_my-script \"\$@\""* && $embedded_autoload_completion != *"compdef _my-script my-script"* ]]; then
+  record-pass embedded-completion-autoload-form
+else
+  record-fail embedded-completion-autoload-form "got: $embedded_autoload_completion"
+fi
+print -r -- "$embedded_autoload_completion" >$TMP/embedded-completion-autoload.zsh
+if zsh -n $TMP/embedded-completion-autoload.zsh; then
+  record-pass embedded-completion-autoload-syntax
+else
+  record-fail embedded-completion-autoload-syntax
+fi
+
+embedded_script_updated=$TMP/my-script-updated
+zsh $ZR --embed $embedded_script >$embedded_script_updated
+embedded_begin_count=$(grep -Ec -- "^# zr:embedded:begin" $embedded_script_updated)
+if [[ $embedded_begin_count == 1 ]]; then
+  record-pass embed-replaces-existing
+else
+  record-fail embed-replaces-existing "begin marker count: $embedded_begin_count"
 fi
 
 DIRECT_BIN=$TMP/direct-bin

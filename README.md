@@ -27,9 +27,9 @@ single trusted zsh config
 ```
 
 The entrypoint names default to `configure` and `main`. Configs may define
-those names directly, define `$(zr::configure)` and `$(zr::main)`, or call
-`zr::set-configure NAME` and `zr::set-main NAME` before defining custom
-entrypoint functions.
+those names directly or set `ZR_CONFIGURE` and `ZR_MAIN` before defining custom
+entrypoint functions. `zr::set-configure NAME` and `zr::set-main NAME` remain
+available as compatibility helpers for configs run by an external `zr`.
 
 The config remains ordinary zsh. `zr` supplies a lightweight convention for
 parsing invocation context, validating it, and completing it.
@@ -100,6 +100,26 @@ Then run it directly:
 ./curl-my-service prod shard1 /v1/orders order_id=99 -- arg1 arg2
 ```
 
+Or generate a standalone embedded script:
+
+```sh
+zr --embed ./curl-my-service > ./curl-my-service.standalone
+chmod +x ./curl-my-service.standalone
+```
+
+Embedded scripts use a zsh shebang and carry a generated `zr` runtime at the
+bottom of the file between markers:
+
+```zsh
+# zr:embedded:begin version=...
+# generated zr runtime
+# zr:embedded:end
+```
+
+Running `zr --embed` on an already embedded script replaces the marked runtime
+region in the emitted output instead of appending a second copy. The input file
+is not modified.
+
 Tagged symlink names can also supply invocation context:
 
 ```text
@@ -167,6 +187,21 @@ main() {
   print -r -- "branch_name: $(zr::get-arg branch_name)"
   print -r -- "payload_file: $(zr::get-arg payload_file)"
   print -r -- "main argv: $*"
+}
+```
+
+Custom entrypoints may be selected with variables:
+
+```zsh
+ZR_CONFIGURE=setup
+ZR_MAIN=run
+
+setup() {
+  zr::tag prod
+}
+
+run() {
+  print -r -- "tags: ${ZR_TAGS[*]}"
 }
 ```
 
@@ -283,6 +318,24 @@ compdef _zr curl-my-service.prod
 
 Completion evaluates the config in a subshell so shell state does not leak back
 into the interactive shell.
+
+Embedded scripts provide the same two completion installation forms, but the
+generated function is per-script:
+
+```zsh
+eval "$(my-script --completion)"
+```
+
+prints a function such as `_my-script`, plus `compdef` registrations for the
+current shell. For durable autoload installation:
+
+```sh
+my-script --completion-autoload > ~/.local/share/zsh/site-functions/_my-script
+```
+
+The autoload form includes `#compdef my-script`, the `_my-script` function,
+the tagged/path pattern registration, and a tail call for the completion request
+that caused zsh to load the file.
 
 ## Security
 

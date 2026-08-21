@@ -1,6 +1,9 @@
 #!/usr/bin/env zsh
 
 typeset -gr ZR_SCRIPT=${0:A}
+typeset -gr ZR_EMBEDDED_BEGIN='# zr:embedded:begin'
+typeset -gr ZR_EMBEDDED_END='# zr:embedded:end'
+typeset -gr ZR_VERSION=0.1.0
 
 zr::die() {
   print -ru2 -- "zr: $*"
@@ -20,19 +23,24 @@ zr::valid-config-function-name() {
 }
 
 zr::init-entrypoints() {
-  typeset -g ZR_CONFIG_MAIN=main
-  typeset -g ZR_CONFIG_CONFIGURE=configure
+  if [[ ${1-} == preserve ]]; then
+    typeset -g ZR_MAIN=${ZR_MAIN:-main}
+    typeset -g ZR_CONFIGURE=${ZR_CONFIGURE:-configure}
+  else
+    typeset -g ZR_MAIN=main
+    typeset -g ZR_CONFIGURE=configure
+  fi
   typeset -gi ZR_CONFIG_CONFIGURE_SET=0
 }
 
 zr::main() {
   (( $# == 0 )) || { print -ru2 -- "zr: zr::main takes no arguments"; return 1; }
-  print -r -- "$ZR_CONFIG_MAIN"
+  print -r -- "$ZR_MAIN"
 }
 
 zr::configure() {
   (( $# == 0 )) || { print -ru2 -- "zr: zr::configure takes no arguments"; return 1; }
-  print -r -- "$ZR_CONFIG_CONFIGURE"
+  print -r -- "$ZR_CONFIGURE"
 }
 
 zr::ready() {
@@ -44,19 +52,19 @@ zr::set-main() {
   local name=${1-}
   (( $# == 1 )) || zr::die "zr::set-main requires one argument"
   zr::valid-config-function-name "$name" || zr::die "invalid main function name: $name"
-  ZR_CONFIG_MAIN=$name
+  ZR_MAIN=$name
 }
 
 zr::set-configure() {
   local name=${1-}
   (( $# == 1 )) || zr::die "zr::set-configure requires one argument"
   zr::valid-config-function-name "$name" || zr::die "invalid configure function name: $name"
-  ZR_CONFIG_CONFIGURE=$name
+  ZR_CONFIGURE=$name
   ZR_CONFIG_CONFIGURE_SET=1
 }
 
 zr::init-state() {
-  zr::init-entrypoints
+  zr::init-entrypoints "$@"
 
   typeset -ga ZR_TAGS
   typeset -ga ZR_FILENAME_TAGS
@@ -441,6 +449,35 @@ zr::resolve-config() {
   fi
 }
 
+zr::configure-is-required() {
+  [[ ${ZR_CONFIGURE:-configure} != configure ]] || (( ZR_CONFIG_CONFIGURE_SET ))
+}
+
+zr::run-configure() {
+  local configure_fn=${ZR_CONFIGURE:-configure}
+  zr::valid-config-function-name "$configure_fn" || zr::die "invalid configure function name: $configure_fn"
+  if (( $+functions[$configure_fn] )); then
+    zr::reset-schema
+    "$configure_fn" || zr::die "$configure_fn() failed"
+    return 0
+  fi
+  zr::configure-is-required && zr::die "config does not define $configure_fn()"
+  return 1
+}
+
+zr::run-loaded-config() {
+  local main_fn=${ZR_MAIN:-main}
+  zr::valid-config-function-name "$main_fn" || zr::die "invalid main function name: $main_fn"
+  (( $+functions[$main_fn] )) || zr::die "config does not define $main_fn()"
+
+  if zr::run-configure; then
+    zr::validate-state
+  fi
+
+  _ZR_READY=1
+  "$main_fn" "${ZR_MAIN_ARGS[@]}"
+}
+
 zr::next-arg-kind() {
   local next=$(( ${#ZR_ARGS[@]} + 1 ))
   local name
@@ -465,31 +502,16 @@ zr::tag-blocked-by-active-group() {
   return 1
 }
 
-zr::complete() {
-  (( $# >= 1 )) || return 1
-
-  local config_lexical=$1
-  shift
-
-  local current=
-  if [[ ${1-} == --current ]]; then
-    shift
-    current=${1-}
-    shift || true
-  fi
-
+zr::complete-loaded() {
+  local config_lexical=$1 current=$2
+  shift 2
   zr::filename-tags "$config_lexical"
   zr::parse-args "$@"
 
-  local config_path
-  config_path=$(zr::resolve-config "$config_lexical") || return 1
-  [[ -r $config_path ]] || return 1
-
-  source "$config_path" || return 1
-
-  local configure_fn=$ZR_CONFIG_CONFIGURE
+  local configure_fn=${ZR_CONFIGURE:-configure}
+  zr::valid-config-function-name "$configure_fn" || return 1
   if (( ! $+functions[$configure_fn] )); then
-    (( ZR_CONFIG_CONFIGURE_SET )) && return 1
+    zr::configure-is-required && return 1
     return 0
   fi
 
@@ -526,37 +548,120 @@ zr::complete() {
   fi
 }
 
+zr::complete-external() {
+  (( $# >= 1 )) || return 1
+
+  local config_lexical=$1 lexical= current=
+  shift
+  lexical=$config_lexical
+
+  while (( $# )); do
+    case $1 in
+      --_zr-lexical)
+        shift
+        lexical=${1-}
+        shift || true
+        ;;
+      --current)
+        shift
+        current=${1-}
+        shift || true
+        break
+        ;;
+      *)
+        break
+        ;;
+    esac
+  done
+
+  local config_path
+  config_path=$(zr::resolve-config "$config_lexical") || return 1
+  [[ -r $config_path ]] || return 1
+
+  source "$config_path" || return 1
+  zr::complete-loaded "$lexical" "$current" "$@"
+}
+
+zr::complete-embedded() {
+  local lexical=${ZR_SCRIPT:t} current=
+  while (( $# )); do
+    case $1 in
+      --_zr-lexical)
+        shift
+        lexical=${1-}
+        shift || true
+        ;;
+      --current)
+        shift
+        current=${1-}
+        shift || true
+        break
+        ;;
+      *)
+        break
+        ;;
+    esac
+  done
+
+  zr::complete-loaded "$lexical" "$current" "$@"
+}
+
+zr::completion-function-name() {
+  local command_name=${1:t}
+  command_name=${command_name//[^A-Za-z0-9_.:-]/_}
+  print -r -- "_$command_name"
+}
+
 zr::print-completion() {
-  local mode=${1:-source}
-  local runner=$ZR_SCRIPT
+  local mode=${1:-source} command_name=${2:-zr} kind=${3:-external}
+  local function_name runner=$ZR_SCRIPT
+  function_name=$(zr::completion-function-name "$command_name")
   if [[ $mode == autoload ]]; then
-    print -r -- "#compdef zr"
+    print -r -- "#compdef $command_name"
     print -r -- ""
   fi
-  print -r -- "_zr() {"
-  print -r -- "  local config start current script"
-  print -r -- "  local runner=${(qqq)runner}"
+  print -r -- "$function_name() {"
+  print -r -- "  local config start current cmd runner lexical"
+  print -r -- "  local completion_kind=${(qqq)kind}"
+  print -r -- "  local external_runner=${(qqq)runner}"
   cat <<'ZR_COMPLETION'
 
-  if [[ ${words[1]:t} == zr ]]; then
+  cmd=${words[1]}
+  lexical=$cmd
+
+  if [[ $completion_kind == external ]]; then
     if (( CURRENT == 2 )); then
       _files
       return
     fi
-    config=${(Q)words[2]}
-    start=3
+    if [[ ${cmd:t} == zr ]]; then
+      config=${(Q)words[2]}
+      start=3
+    else
+      config=${(Q)words[1]}
+      start=2
+    fi
+    runner=$external_runner
   else
     config=${(Q)words[1]}
     start=2
+    if [[ $cmd == */* ]]; then
+      runner=$cmd
+    else
+      runner=${commands[$cmd]:-$cmd}
+    fi
   fi
 
   [[ -n $config ]] || return
   current=${(Q)words[CURRENT]}
-  script=${_zr_runner:-$runner}
 
   local -a committed candidates spaced nospace
   committed=("${(@Q)words[$start,$(( CURRENT - 1 ))]}")
-  candidates=("${(@f)$($script --_zr-complete "$config" --current "$current" "${committed[@]}" 2>/dev/null)}")
+  if [[ $completion_kind == external ]]; then
+    candidates=("${(@f)$("$runner" --_zr-complete "$config" --_zr-lexical "$lexical" --current "$current" "${committed[@]}" 2>/dev/null)}")
+  else
+    candidates=("${(@f)$("$runner" --_zr-complete --_zr-lexical "$lexical" --current "$current" "${committed[@]}" 2>/dev/null)}")
+  fi
 
   (( ${#candidates[@]} )) || return
 
@@ -582,23 +687,132 @@ zr::print-completion() {
 }
 ZR_COMPLETION
 
-  [[ $mode == source ]] && print -r -- "compdef _zr zr"
+  if [[ $mode == source ]]; then
+    print -r -- "compdef $function_name $command_name"
+    print -r -- "compdef $function_name -p '*/$command_name(|.*)'"
+  else
+    print -r -- ""
+    print -r -- "compdef $function_name -p '*/$command_name(|.*)'"
+    print -r -- "$function_name \"\$@\""
+  fi
+}
+
+zr::print-embedded-runtime() {
+  print -r -- "$ZR_EMBEDDED_BEGIN version=$ZR_VERSION"
+
+  local first=1 line
+  while IFS= read -r line || [[ -n $line ]]; do
+    if (( first )); then
+      first=0
+      [[ $line == '#!'* ]] && continue
+    fi
+
+    if [[ $line == 'zr::_main "$@"' ]]; then
+      print -r -- 'zr::_embedded-main "$@"'
+    else
+      print -r -- "$line"
+    fi
+  done < "$ZR_SCRIPT"
+
+  print -r -- "$ZR_EMBEDDED_END"
+}
+
+zr::embed() {
+  (( $# == 1 )) || zr::die "zr --embed requires one config operand"
+
+  local config=$1
+  [[ -r $config ]] || zr::die "config cannot be read: $config"
+
+  local line first=1 saw_begin=0 saw_end=0 in_region=0
+  local emitted_shebang=0 replaced=0
+
+  while IFS= read -r line || [[ -n $line ]]; do
+    if (( first )); then
+      first=0
+      if [[ $line == '#!'* ]]; then
+        print -r -- '#!/usr/bin/env zsh'
+        emitted_shebang=1
+        continue
+      fi
+    fi
+
+    if [[ $line == "$ZR_EMBEDDED_BEGIN"* ]]; then
+      (( saw_begin )) && zr::die "malformed embedded region: duplicate begin marker"
+      saw_begin=1
+      in_region=1
+      replaced=1
+      zr::print-embedded-runtime
+      continue
+    fi
+
+    if [[ $line == "$ZR_EMBEDDED_END"* ]]; then
+      (( saw_begin )) || zr::die "malformed embedded region: end marker without begin marker"
+      in_region=0
+      saw_end=1
+      continue
+    fi
+
+    (( in_region )) && continue
+
+    if (( ! emitted_shebang )); then
+      print -r -- '#!/usr/bin/env zsh'
+      emitted_shebang=1
+    fi
+    print -r -- "$line"
+  done < "$config"
+
+  (( in_region )) && zr::die "malformed embedded region: begin marker without end marker"
+  (( saw_begin && ! saw_end )) && zr::die "malformed embedded region: begin marker without end marker"
+
+  if (( ! replaced )); then
+    print -r -- ""
+    zr::print-embedded-runtime
+  fi
+}
+
+zr::_embedded-main() {
+  case ${1-} in
+    --completion)
+      zr::print-completion source "${ZR_SCRIPT:t}" embedded
+      return 0
+      ;;
+    --completion-autoload)
+      zr::print-completion autoload "${ZR_SCRIPT:t}" embedded
+      return 0
+      ;;
+    --_zr-complete)
+      shift
+      zr::init-state preserve
+      zr::complete-embedded "$@"
+      return $?
+      ;;
+  esac
+
+  zr::init-state preserve
+  zr::filename-tags "${ZR_SCRIPT:t}"
+  zr::parse-args "$@"
+  zr::run-loaded-config
 }
 
 zr::_main() {
   case ${1-} in
+    --embed)
+      shift
+      zr::embed "$@"
+      return 0
+      ;;
     --completion)
-      zr::print-completion
+      zr::print-completion source zr external
       return 0
       ;;
     --completion-autoload)
-      zr::print-completion autoload
+      zr::print-completion autoload zr external
       return 0
       ;;
     --_zr-complete)
       shift
       zr::init-state
-      zr::complete "$@"
+      zr::complete-external "$@"
       return $?
       ;;
   esac
@@ -619,23 +833,7 @@ zr::_main() {
 
   source "$config_path" || zr::die "failed to source config: $config_lexical"
 
-  local main_fn=$ZR_CONFIG_MAIN
-  local configure_fn=$ZR_CONFIG_CONFIGURE
-
-  if (( ! $+functions[$main_fn] )); then
-    zr::die "config does not define $main_fn()"
-  fi
-
-  if (( $+functions[$configure_fn] )); then
-    zr::reset-schema
-    "$configure_fn" || zr::die "$configure_fn() failed"
-    zr::validate-state
-  elif (( ZR_CONFIG_CONFIGURE_SET )); then
-    zr::die "config does not define $configure_fn()"
-  fi
-
-  _ZR_READY=1
-  "$main_fn" "${ZR_MAIN_ARGS[@]}"
+  zr::run-loaded-config
 }
 
 zr::_main "$@"
