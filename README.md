@@ -36,7 +36,14 @@ parsing invocation context, validating it, and completing it.
 
 ## Installation
 
-Install `zr` somewhere on your `PATH`:
+With Homebrew:
+
+```sh
+brew tap prfxn/tap
+brew install zr
+```
+
+Or install `zr` manually somewhere on your `PATH`:
 
 ```sh
 mkdir -p ~/.local/bin
@@ -72,7 +79,7 @@ Executable configs that use a `zr` shebang need their command names registered
 with zsh completion too:
 
 ```zsh
-eval "$(curl-my-service --completion)"
+. <(curl-my-service --completion)
 ```
 
 The generated per-command completion registers the command name plus a pattern
@@ -301,13 +308,13 @@ For direct path invocations of an executable config whose shebang invokes `zr`,
 the config can print its own per-command completion installer:
 
 ```zsh
-eval "$(./examples/curl-order-service --completion)"
+. <(examples/curl-order-service --completion)
 ```
 
 This registers completion for commands such as:
 
 ```zsh
-./examples/curl-order-service ...
+examples/curl-order-service ...
 /absolute/path/to/curl-order-service ...
 ```
 
@@ -330,7 +337,7 @@ so shell state does not leak back into the interactive shell.
 Embedded scripts provide the same two completion installation forms:
 
 ```zsh
-eval "$(my-script --completion)"
+. <(my-script --completion)
 ```
 
 prints a function such as `_my-script`, plus `compdef` registrations for the
