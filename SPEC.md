@@ -107,9 +107,11 @@ region at the bottom:
 
 # user config declarations
 
-# zr:embedded:begin version=...
+# region: zr, version=..., license-url=https://github.com/prfxn/zr/blob/main/LICENSE
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 2026 prfxn
 # generated zr runtime
-# zr:embedded:end
+# endregion: zr
 ```
 
 The generated runtime region is bounded by the begin and end markers. A config

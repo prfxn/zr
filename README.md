@@ -125,9 +125,11 @@ Embedded scripts use a zsh shebang and carry a generated `zr` runtime at the
 bottom of the file between markers:
 
 ```zsh
-# zr:embedded:begin version=...
+# region: zr, version=..., license-url=https://github.com/prfxn/zr/blob/main/LICENSE
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 2026 prfxn
 # generated zr runtime
-# zr:embedded:end
+# endregion: zr
 ```
 
 Running `zr --embed` on an already embedded script replaces the marked runtime

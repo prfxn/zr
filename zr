@@ -1,9 +1,12 @@
 #!/usr/bin/env zsh
 
 typeset -gr ZR_SCRIPT=${0:A}
-typeset -gr ZR_EMBEDDED_BEGIN='# zr:embedded:begin'
-typeset -gr ZR_EMBEDDED_END='# zr:embedded:end'
+typeset -gr ZR_EMBEDDED_BEGIN='# region: zr'
+typeset -gr ZR_EMBEDDED_END='# endregion: zr'
+typeset -gr ZR_EMBEDDED_LEGACY_BEGIN='# zr:embedded:begin'
+typeset -gr ZR_EMBEDDED_LEGACY_END='# zr:embedded:end'
 typeset -gr ZR_VERSION=0.1.0
+typeset -gr ZR_LICENSE_URL='https://github.com/prfxn/zr/blob/main/LICENSE'
 
 zr::die() {
   print -ru2 -- "zr: $*"
@@ -698,7 +701,9 @@ ZR_COMPLETION
 }
 
 zr::print-embedded-runtime() {
-  print -r -- "$ZR_EMBEDDED_BEGIN version=$ZR_VERSION"
+  print -r -- "$ZR_EMBEDDED_BEGIN, version=$ZR_VERSION, license-url=$ZR_LICENSE_URL"
+  print -r -- '# SPDX-License-Identifier: MIT'
+  print -r -- '# SPDX-FileCopyrightText: 2026 prfxn'
 
   local first=1 line
   while IFS= read -r line || [[ -n $line ]]; do
@@ -736,7 +741,7 @@ zr::embed() {
       fi
     fi
 
-    if [[ $line == "$ZR_EMBEDDED_BEGIN"* ]]; then
+    if [[ $line == "$ZR_EMBEDDED_BEGIN"* || $line == "$ZR_EMBEDDED_LEGACY_BEGIN"* ]]; then
       (( saw_begin )) && zr::die "malformed embedded region: duplicate begin marker"
       saw_begin=1
       in_region=1
@@ -745,7 +750,7 @@ zr::embed() {
       continue
     fi
 
-    if [[ $line == "$ZR_EMBEDDED_END"* ]]; then
+    if [[ $line == "$ZR_EMBEDDED_END"* || $line == "$ZR_EMBEDDED_LEGACY_END"* ]]; then
       (( saw_begin )) || zr::die "malformed embedded region: end marker without begin marker"
       in_region=0
       saw_end=1

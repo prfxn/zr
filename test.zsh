@@ -469,7 +469,10 @@ embedded_script=$TMP/my-script
 zsh $ZR --embed $TMP/embed-source.zsh >$embedded_script
 chmod +x $embedded_script
 
-if grep -Fq -- "# zr:embedded:begin version=" $embedded_script && grep -Fq -- "# zr:embedded:end" $embedded_script; then
+if grep -Fq -- "# region: zr, version=0.1.0, license-url=https://github.com/prfxn/zr/blob/main/LICENSE" $embedded_script \
+  && grep -Fq -- "# SPDX-License-Identifier: MIT" $embedded_script \
+  && grep -Fq -- "# SPDX-FileCopyrightText: 2026 prfxn" $embedded_script \
+  && grep -Fq -- "# endregion: zr" $embedded_script; then
   record-pass embed-markers
 else
   record-fail embed-markers "embedded script was: $(<$embedded_script)"
@@ -523,11 +526,32 @@ fi
 
 embedded_script_updated=$TMP/my-script-updated
 zsh $ZR --embed $embedded_script >$embedded_script_updated
-embedded_begin_count=$(grep -Ec -- "^# zr:embedded:begin" $embedded_script_updated)
+embedded_begin_count=$(grep -Ec -- "^# region: zr" $embedded_script_updated)
 if [[ $embedded_begin_count == 1 ]]; then
   record-pass embed-replaces-existing
 else
   record-fail embed-replaces-existing "begin marker count: $embedded_begin_count"
+fi
+
+legacy_embedded_script=$TMP/my-script-legacy
+while IFS= read -r line || [[ -n $line ]]; do
+  if [[ $line == '# region: zr,'* ]]; then
+    print -r -- '# zr:embedded:begin version=0.1.0'
+  elif [[ $line == '# endregion: zr' ]]; then
+    print -r -- '# zr:embedded:end'
+  else
+    print -r -- "$line"
+  fi
+done <$embedded_script >$legacy_embedded_script
+
+legacy_embedded_script_updated=$TMP/my-script-legacy-updated
+zsh $ZR --embed $legacy_embedded_script >$legacy_embedded_script_updated
+legacy_updated_begin_count=$(grep -Ec -- "^# region: zr" $legacy_embedded_script_updated)
+legacy_remaining_begin_count=$(grep -Ec -- "^# zr:embedded:begin" $legacy_embedded_script_updated)
+if [[ $legacy_updated_begin_count == 1 && $legacy_remaining_begin_count == 0 ]]; then
+  record-pass embed-replaces-legacy-existing
+else
+  record-fail embed-replaces-legacy-existing "new begin count: $legacy_updated_begin_count, legacy begin count: $legacy_remaining_begin_count"
 fi
 
 DIRECT_BIN=$TMP/direct-bin
